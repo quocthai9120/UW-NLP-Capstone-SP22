@@ -7,7 +7,7 @@ from pathlib import Path
 
 def fucked(rnd: random.Random, indexer: data_util.SymbolIndexer, symbol_indices: torch.LongTensor) -> torch.LongTensor:
     N = len(symbol_indices)
-    MASK_PROB = 0.075
+    MASK_PROB = 0.15
     MASK_IDX = 0
     SWAP_PROB = 0.075
 

@@ -6,9 +6,9 @@ import pytorch_lightning as pl
 
 
 def _barlow_twins_loss(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    LAMBDA = 0.5
-    a = a.flatten(start_dim=1)
-    b = b.flatten(start_dim=1)
+    LAMBDA = 0.005
+    a = a.mean(dim=1)
+    b = b.mean(dim=1)
 
     a = a - a.mean(dim=0, keepdim=True)
     b = b - b.mean(dim=0, keepdim=True)
@@ -17,8 +17,8 @@ def _barlow_twins_loss(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
     C = (a.transpose(0, 1) @ b)
     diag = C.diagonal()
-    similarity = (diag - 1.0).pow(2).mean()
-    redundancy = (C - diag.diag()).pow(2).mean()
+    similarity = (diag - 1.0).pow(2).sum()
+    redundancy = (C - diag.diag()).pow(2).sum()
 
     return similarity + LAMBDA * redundancy
 

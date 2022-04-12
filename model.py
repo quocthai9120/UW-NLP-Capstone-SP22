@@ -2,10 +2,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List
-
-import data_util
-
 
 class ResidualSelfAttention(nn.Module):
     def __init__(self, length: int, dim: int, num_heads: int):

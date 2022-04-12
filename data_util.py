@@ -16,7 +16,6 @@ def load_glove(path: Path, dim: int) -> Tuple[List[str], Tensor]:
 
         embeddings: Tensor = torch.empty(len(words), dim)
         for idx, vec in enumerate(vecs):
-            tokens = line.split()
             embeddings[idx] = torch.tensor(vec)
 
     return words, embeddings

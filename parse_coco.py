@@ -9,12 +9,12 @@ from tqdm import tqdm
 import argparse
 
 
-def main(clip_model_type: str):
+def main(clip_model_type: str, run_type: str):
     device = torch.device('cuda:0')
     clip_model_name = clip_model_type.replace('/', '_')
-    out_path = f"./data/coco/oscar_split_{clip_model_name}_train.pkl"
+    out_path = f"./data/coco/oscar_split_{clip_model_name}_{run_type}.pkl"
     clip_model, preprocess = clip.load(clip_model_type, device=device, jit=False)
-    with open('./data/coco/annotations/train_caption.json', 'r') as f:
+    with open(f'./data/coco/annotations/{run_type}_caption.json', 'r') as f:
         data = json.load(f)
     print("%0d captions loaded from json " % len(data))
     all_embeddings = []
@@ -22,9 +22,12 @@ def main(clip_model_type: str):
     for i in tqdm(range(len(data))):
         d = data[i]
         img_id = d["image_id"]
-        filename = f"./data/coco/train2014/COCO_train2014_{int(img_id):012d}.jpg"
-        if not os.path.isfile(filename):
+        if run_type == "train":    
+            filename = f"./data/coco/train2014/COCO_train2014_{int(img_id):012d}.jpg"
+        elif run_type == "val":
             filename = f"./data/coco/val2014/COCO_val2014_{int(img_id):012d}.jpg"
+        else:
+            raise IOError('Invalid runtype')
         image = io.imread(filename)
         image = preprocess(Image.fromarray(image)).unsqueeze(0).to(device)
         with torch.no_grad():
@@ -47,5 +50,6 @@ def main(clip_model_type: str):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--clip_model_type', default="ViT-B/32", choices=('RN50', 'RN101', 'RN50x4', 'ViT-B/32'))
+    parser.add_argument('--run_type', default="train", choices=("train", "val"))
     args = parser.parse_args()
-    exit(main(args.clip_model_type))
+    exit(main(args.clip_model_type, args.run_type))

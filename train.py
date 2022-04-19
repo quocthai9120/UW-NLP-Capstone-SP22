@@ -11,7 +11,8 @@ import sys
 import argparse
 import json
 from typing import Tuple, Optional, Union
-
+import numpy as np
+from torch.utils.tensorboard import SummaryWriter
 
 class MappingType(Enum):
     MLP = 'mlp'
@@ -288,9 +289,10 @@ def load_model(config_path: str, epoch_or_latest: Union[str, int] = '_latest'):
     return model, parser
 
 
-def train(dataset: ClipCocoDataset, model: ClipCaptionModel, args,
+def train(train_dataset: ClipCocoDataset, val_dataset: ClipCocoDataset, model: ClipCaptionModel, args,
           lr: float = 2e-5, warmup_steps: int = 5000, output_dir: str = ".", output_prefix: str = ""):
 
+    writer = SummaryWriter(log_dir="./logs")
     device = torch.device('cuda:0')
     batch_size = args.bs
     epochs = args.epochs
@@ -299,37 +301,65 @@ def train(dataset: ClipCocoDataset, model: ClipCaptionModel, args,
     model = model.to(device)
     model.train()
     optimizer = AdamW(model.parameters(), lr=lr)
-    train_dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=warmup_steps, num_training_steps=epochs * len(train_dataloader)
     )
     # save_config(args)
+    best_val = float('inf')
     for epoch in range(epochs):
         print(f">>> Training epoch {epoch}")
         sys.stdout.flush()
         progress = tqdm(total=len(train_dataloader), desc=output_prefix)
+        model.train()
         for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
             model.zero_grad()
             tokens, mask, prefix = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32)
             outputs = model(tokens, prefix, mask)
-            logits = outputs.logits[:, dataset.prefix_length - 1: -1]
+            logits = outputs.logits[:, train_dataset.prefix_length - 1: -1]
             loss = nnf.cross_entropy(logits.reshape(-1, logits.shape[-1]), tokens.flatten(), ignore_index=0)
             loss.backward()
             optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
-            progress.set_postfix({"loss": loss.item()})
+            progress.set_postfix({"train_loss": loss.item()})
             progress.update()
-            if (idx + 1) % 10000 == 0:
-                torch.save(
-                    model.state_dict(),
-                    os.path.join(output_dir, f"{output_prefix}_latest.pt"),
-                )
+            writer.add_scalar(
+                    'Train/batchloss',
+                    float(loss),
+                    len(train_dataloader) * epoch + idx)
         progress.close()
-        if epoch % args.save_every == 0 or epoch == epochs - 1:
+        torch.save(
+            model.state_dict(),
+            os.path.join(output_dir, f"{output_prefix}_{epoch}.pt"),
+        )
+        model.eval()
+        losses = []
+        progress = tqdm(total=len(val_dataloader), desc=output_prefix)
+        for idx, (tokens, mask, prefix) in enumerate(val_dataloader):
+            tokens, mask, prefix = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32)
+            outputs = model(tokens, prefix, mask)
+            logits = outputs.logits[:,val_dataset.prefix_length - 1: -1]
+            loss = nnf.cross_entropy(logits.reshape(-1, logits.shape[-1]), tokens.flatten(), ignore_index=0)
+            progress.set_postfix({"val_loss": loss.item()})
+            progress.update()
+            losses.append(float(loss))
+            writer.add_scalar(
+                'Val/batchloss',
+                float(loss),
+                len(val_dataloader) * epoch + idx)
+        progress.close()
+        val = np.mean(losses)
+        writer.add_scalar(
+            'Val/epochloss',
+            val,
+            len(val_dataloader) * epoch + idx)
+        if val < best_val:
+            val = best_val
             torch.save(
                 model.state_dict(),
-                os.path.join(output_dir, f"{output_prefix}-{epoch:03d}.pt"),
+                os.path.join(output_dir, f"{output_prefix}_best.pt"),
             )
     return model
 
@@ -351,7 +381,8 @@ def main():
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
     args = parser.parse_args()
     prefix_length = args.prefix_length
-    dataset = ClipCocoDataset(args.data, prefix_length, normalize_prefix=args.normalize_prefix)
+    train_dataset = ClipCocoDataset(args.data, prefix_length, normalize_prefix=args.normalize_prefix)
+    val_dataset = ClipCocoDataset(args.data.replace("train", "val"), prefix_length, normalize_prefix=args.normalize_prefix)
     prefix_dim = 640 if args.is_rn else 512
     args.mapping_type = {'mlp': MappingType.MLP, 'transformer': MappingType.Transformer}[args.mapping_type]
     if args.only_prefix:
@@ -363,7 +394,7 @@ def main():
                                   num_layers=args.num_layers, mapping_type=args.mapping_type)
         print("Train both prefix and GPT")
         sys.stdout.flush()
-    train(dataset, model, args, output_dir=args.out_dir, output_prefix=args.prefix)
+    train(train_dataset, val_dataset, model, args, output_dir=args.out_dir, output_prefix=args.prefix)
 
 
 if __name__ == '__main__':

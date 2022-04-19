@@ -7,6 +7,12 @@ Inference Notebook: <a href="https://colab.research.google.com/drive/1tuoAC5F4sC
 
 
 
+## Setup
+We use the [COCO caption evaluation tool](https://github.com/LuoweiZhou/coco-caption/tree/de6f385503ac9a4305a1dcdc39c02312f9fa13fc), we suggest installing it via
+```
+pip install git+https://github.com/flauted/coco-caption.git@python23
+```
+
 
 
 ## Official implementation for the paper ["ClipCap: CLIP Prefix for Image Captioning"](https://arxiv.org/abs/2111.09734)

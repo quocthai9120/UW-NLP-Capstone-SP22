@@ -1,5 +1,14 @@
 Our implementation is based on the official implementation of ClipCap("https://github.com/rmokady/CLIP_prefix_caption"), we thank the authors for distributing.
 
+# Currently standing TODO:
+- [ ] Integrate metric (Bleu, cider, etc) evaluation code from oscar
+- [ ] Add loss, metric evaluation into training, implement validation loop with tensorboard
+- [ ] Baseline experiment
+- [ ] modification 1: feed features to each layer of GPT
+- [ ] modification 2: spatial features as input to mapper instead of global vector
+- [ ] modification 3: learn positional encoding
+
+
 # CLIP prefix captioning.
 
 <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>  

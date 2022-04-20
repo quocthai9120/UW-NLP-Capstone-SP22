@@ -12,7 +12,7 @@ import argparse
 import json
 from typing import Tuple, Optional, Union
 import numpy as np
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 
 class MappingType(Enum):
     MLP = 'mlp'

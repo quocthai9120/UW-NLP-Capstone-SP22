@@ -306,8 +306,10 @@ def get_karpathy_image_ids(path='data/coco/annotations/val_caption.json'):
 
 def main():
     id_to_pathname = map_images_id_to_pathname()
-    karpathy_val_image_ids = get_karpathy_image_ids()[:10]
-    
+    karpathy_val_image_ids = set(get_karpathy_image_ids())
+
+    print("Len karpathy_val_image_ids is", len(karpathy_val_image_ids))
+
     val_pred_captions = list()
     model = "coco"
     use_beam_search = True
@@ -322,7 +324,7 @@ def main():
         result = predictor.predict(image_dir + image_path, model, use_beam_search)
         val_pred_captions.append({"image_id" : id, "caption" : result})
 
-        if i % 500 == 0:
+        if i % 100 == 0:
             json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
             print("Step", i, "-- Image", image_path, "-- Caption:", result)
 

@@ -7,13 +7,16 @@ encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 
 
 def main() -> None:
-    preds_captions = 'data/coco/annotations/captions_val2014_fakecap_results.json'
-    true_captions = 'data/coco/annotations/captions_val2014.json'
+    preds_captions = 'data/coco/annotations/pred_val_caption.json'
+    true_captions = 'data/coco/annotations/captions_trainval2014.json'
 
     coco = COCO(true_captions)
     valids = coco.getImgIds()
 
     preds = json.load(open(preds_captions, 'r'))
+
+    for pred in preds:
+        pred['image_id'] = int(pred['image_id'])
 
     # filter results to only those in MSCOCO validation set (will be about a third)
     preds_filt = [p for p in preds if p['image_id'] in valids]

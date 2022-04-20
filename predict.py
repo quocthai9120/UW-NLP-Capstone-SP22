@@ -16,6 +16,7 @@ import skimage.io as io
 import PIL.Image
 from train import TransformerMapper
 # import torch
+from tqdm import tqdm
 
 from os import listdir
 from os.path import isfile, join
@@ -301,7 +302,7 @@ def main():
     predictor = Predictor()
     predictor.setup()
 
-    for image_path in image_paths:
+    for image_path in tqdm(image_paths):
         result = predictor.predict(image_dir + image_path, model, use_beam_search)
         val_pred_captions.append({"image_id" : images_path_to_name[image_path], "caption" : result})
 

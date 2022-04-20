@@ -276,25 +276,41 @@ def generate2(
     return generated_list[0]
 
 
-def map_images_to_file_names():
-    images_path_to_name = dict()
+def map_images_id_to_pathname():
+    id_to_pathname = dict()
 
+    # add val data map
     f = json.load(open('data/coco/annotations/captions_val2014.json', 'r'))
 
     for i in range(len(f['images'])):
-        images_path_to_name[f['images'][i]['file_name']] = f['images'][i]['id']
+        id_to_pathname[str(f['images'][i]['id'])] = ('data/coco/val2014/', f['images'][i]['file_name'])
 
-    torch.save(images_path_to_name, 'data/coco/images_path_to_name.pt')
+    # add train data map
+    f = json.load(open('data/coco/annotations/captions_train2014.json', 'r'))
 
-    return images_path_to_name
+    for i in range(len(f['images'])):
+        id_to_pathname[str(f['images'][i]['id'])] = ('data/coco/train2014/', f['images'][i]['file_name'])
+
+    print("Len of id_to_pathname is:", len(id_to_pathname))
+    torch.save(id_to_pathname, 'data/coco/id_to_pathname.pt')
+
+    return id_to_pathname
+
+
+def get_karpathy_image_ids(path='data/coco/annotations/val_caption.json'):
+    f = json.load(open(path, 'r'))
+
+    result = [element['image_id'] for element in f]
+    print("Length of elements in", path, "is", len(result))
+    return result
 
 
 def main():
-    images_path_to_name = map_images_to_file_names()
+    id_to_pathname = map_images_id_to_pathname()
+    karpathy_val_image_ids = set(get_karpathy_image_ids())
 
-    image_dir = 'data/coco/val2014/'
-    image_paths = [f for f in listdir(image_dir) if isfile(join(image_dir, f))]
-    
+    print("Len karpathy_val_image_ids is", len(karpathy_val_image_ids))
+
     val_pred_captions = list()
     model = "coco"
     use_beam_search = True
@@ -302,12 +318,18 @@ def main():
     predictor = Predictor()
     predictor.setup()
 
-    for image_path in tqdm(image_paths):
+    for i, id in enumerate(tqdm(karpathy_val_image_ids)):
+        image_dir = id_to_pathname[id][0]
+        image_path = id_to_pathname[id][1]
+
         result = predictor.predict(image_dir + image_path, model, use_beam_search)
-        val_pred_captions.append({"image_id" : images_path_to_name[image_path], "caption" : result})
+        val_pred_captions.append({"image_id" : id, "caption" : result})
+
+        if i % 100 == 0:
+            json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
+            print("Step", i, "-- Image", image_path, "-- Caption:", result)
 
     json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
-    print(val_pred_captions)
 
 
 if __name__ == "__main__":

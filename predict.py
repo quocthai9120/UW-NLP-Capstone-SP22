@@ -301,12 +301,14 @@ def main():
     predictor = Predictor()
     predictor.setup()
 
-    for image_path in image_paths:
+    for i, image_path in enumerate(image_paths):
         result = predictor.predict(image_dir + image_path, model, use_beam_search)
         val_pred_captions.append({"image_id" : images_path_to_name[image_path], "caption" : result})
 
+        if i % 500 == 0:
+            print("Step", i, "-- Image", image_path, "-- Caption:", result)
+
     json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
-    print(val_pred_captions)
 
 
 if __name__ == "__main__":

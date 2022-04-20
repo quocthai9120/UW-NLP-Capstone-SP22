@@ -1,6 +1,3 @@
-# Prediction interface for Cog ⚙️
-# Reference: https://github.com/replicate/cog/blob/main/docs/python.md
-
 import clip
 import os
 from torch import nn
@@ -17,10 +14,13 @@ from transformers import (
 )
 import skimage.io as io
 import PIL.Image
-
-import cog
-
+from train import TransformerMapper
 # import torch
+
+from os import listdir
+from os.path import isfile, join
+import json
+
 
 N = type(None)
 V = np.array
@@ -37,15 +37,14 @@ TSN = Optional[TS]
 TA = Union[T, ARRAY]
 
 WEIGHTS_PATHS = {
-    "coco": "coco_weights.pt",
-    "conceptual-captions": "conceptual_weights.pt",
+    "coco": "data/coco/coco_prefix_best.pt",
 }
 
 D = torch.device
 CPU = torch.device("cpu")
 
 
-class Predictor(cog.Predictor):
+class Predictor:
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
         self.device = torch.device("cuda")
@@ -55,7 +54,7 @@ class Predictor(cog.Predictor):
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
         self.models = {}
-        self.prefix_length = 10
+        self.prefix_length = 40
         for key, weights_path in WEIGHTS_PATHS.items():
             model = ClipCaptionModel(self.prefix_length)
             model.load_state_dict(torch.load(weights_path, map_location=CPU))
@@ -63,20 +62,6 @@ class Predictor(cog.Predictor):
             model = model.to(self.device)
             self.models[key] = model
 
-    @cog.input("image", type=cog.Path, help="Input image")
-    @cog.input(
-        "model",
-        type=str,
-        options=WEIGHTS_PATHS.keys(),
-        default="coco",
-        help="Model to use",
-    )
-    @cog.input(
-        "use_beam_search",
-        type=bool,
-        default=False,
-        help="Whether to apply beam search to generate the output text",
-    )
     def predict(self, image, model, use_beam_search):
         """Run a single prediction on the model"""
         image = io.imread(image)
@@ -137,19 +122,7 @@ class ClipCaptionModel(nn.Module):
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained("gpt2")
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
-        if prefix_length > 10:  # not enough memory
-            self.clip_project = nn.Linear(
-                prefix_size, self.gpt_embedding_size * prefix_length
-            )
-        else:
-            self.clip_project = MLP(
-                (
-                    prefix_size,
-                    (self.gpt_embedding_size * prefix_length) // 2,
-                    self.gpt_embedding_size * prefix_length,
-                )
-            )
-
+        self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length, prefix_length, 8)
 
 class ClipCaptionPrefix(ClipCaptionModel):
     def parameters(self, recurse: bool = True):
@@ -300,3 +273,41 @@ def generate2(
             generated_list.append(output_text)
 
     return generated_list[0]
+
+
+def map_images_to_file_names():
+    images_path_to_name = dict()
+
+    f = json.load(open('data/coco/annotations/captions_val2014.json', 'r'))
+
+    for i in range(len(f['images'])):
+        images_path_to_name[f['images'][i]['file_name']] = f['images'][i]['id']
+
+    torch.save(images_path_to_name, 'data/coco/images_path_to_name.pt')
+
+    return images_path_to_name
+
+
+def main():
+    images_path_to_name = map_images_to_file_names()
+
+    image_dir = 'data/coco/val2014/'
+    image_paths = [f for f in listdir(image_dir) if isfile(join(image_dir, f))]
+    
+    val_pred_captions = list()
+    model = "coco"
+    use_beam_search = True
+
+    predictor = Predictor()
+    predictor.setup()
+
+    for image_path in image_paths:
+        result = predictor.predict(image_dir + image_path, model, use_beam_search)
+        val_pred_captions.append({"image_id" : images_path_to_name[image_path], "caption" : result})
+
+    json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
+    print(val_pred_captions)
+
+
+if __name__ == "__main__":
+    main()

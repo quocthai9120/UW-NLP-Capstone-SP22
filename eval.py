@@ -8,7 +8,7 @@ encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 
 def main() -> None:
     preds_captions = 'data/coco/annotations/pred_val_caption.json'
-    true_captions = 'data/coco/annotations/captions_trainval2014.json'
+    true_captions = 'data/coco/annotations/captions_val2014.json'
 
     coco = COCO(true_captions)
     valids = coco.getImgIds()

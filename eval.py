@@ -5,8 +5,17 @@ from json import encoder
 
 encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 
+def combine_mscoco_val_train_caption():
+    train = json.load(open('data/coco/annotations/captions_train2014.json', 'r'))
+    val = json.load(open('data/coco/annotations/captions_val2014.json', 'r'))
+    train['annotations'].extend(val['annotations'])
+    print("Combine json has", len(train['annotations']), "annotations")
+    json.dump('data/coco/annotations/captions_trainval2014.json')
+
 
 def main() -> None:
+    combine_mscoco_val_train_caption()
+
     preds_captions = 'data/coco/annotations/pred_val_caption.json'
     true_captions = 'data/coco/annotations/captions_trainval2014.json'
 

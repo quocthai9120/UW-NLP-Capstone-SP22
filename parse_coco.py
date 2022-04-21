@@ -1,6 +1,6 @@
 import torch
 import skimage.io as io
-import clip
+import ClIP.clip as clip
 from PIL import Image
 import pickle
 import json
@@ -18,6 +18,7 @@ def main(clip_model_type: str, run_type: str):
         data = json.load(f)
     print("%0d captions loaded from json " % len(data))
     all_embeddings = []
+    all_embedding_sequences = []
     all_captions = []
     for i in tqdm(range(len(data))):
         d = data[i]
@@ -31,17 +32,24 @@ def main(clip_model_type: str, run_type: str):
         image = io.imread(filename)
         image = preprocess(Image.fromarray(image)).unsqueeze(0).to(device)
         with torch.no_grad():
-            prefix = clip_model.encode_image(image).cpu()
+            prefix, prefix_sequence = clip_model.encode_image_with_sequence_embedding(image)
         d["clip_embedding"] = i
-        all_embeddings.append(prefix)
+        all_embeddings.append(prefix.cpu())
+        all_embedding_sequences.append(prefix_sequence.cpu())
         all_captions.append(d)
+
         if (i + 1) % 10000 == 0:
             with open(out_path, 'wb') as f:
-                pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
+                pickle.dump({
+                    "clip_embedding": torch.cat(all_embeddings, dim=0),
+                    "clip_embedding_sequences": torch.cat(all_embedding_sequences, dim=0),
+                    "captions": all_captions}, f)
 
     with open(out_path, 'wb') as f:
-        pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
-
+            pickle.dump({
+                "clip_embedding": torch.cat(all_embeddings, dim=0),
+                "clip_embedding_sequences": torch.cat(all_embedding_sequences, dim=0),
+                "captions": all_captions}, f)
     print('Done')
     print("%0d embeddings saved " % len(all_embeddings))
     return 0

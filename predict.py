@@ -1,4 +1,4 @@
-import clip
+import ClIP.clip as clip
 import os
 from torch import nn
 import numpy as np

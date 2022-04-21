@@ -1,5 +1,5 @@
 import torch
-import clip
+import ClIP.clip as clip
 from torch.utils.data import DataLoader, Dataset
 from PIL import Image
 import pickle

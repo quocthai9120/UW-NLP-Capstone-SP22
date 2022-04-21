@@ -12,7 +12,7 @@ import argparse
 import json
 from typing import Tuple, Optional, Union
 import numpy as np
-#from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 class MappingType(Enum):
     MLP = 'mlp'
@@ -42,10 +42,11 @@ class ClipCocoDataset(Dataset):
     def __getitem__(self, item: int) -> Tuple[torch.Tensor, ...]:
         tokens, mask = self.pad_tokens(item)
         prefix = self.prefixes[self.caption2embedding[item]]
+        sequence_prefix = self.sequence_prefixes[self.caption2embedding[item]]
         if self.normalize_prefix:
             prefix = prefix.float()
             prefix = prefix / prefix.norm(2, -1)
-        return tokens, mask, prefix
+        return tokens, mask, prefix, sequence_prefix
 
     def __init__(self, data_path: str,  prefix_length: int, gpt2_type: str = "gpt2",
                  normalize_prefix=False):
@@ -57,6 +58,8 @@ class ClipCocoDataset(Dataset):
         print("Data size is %0d" % len(all_data["clip_embedding"]))
         sys.stdout.flush()
         self.prefixes = all_data["clip_embedding"]
+        self.sequence_prefixes = all_data["clip_embedding_sequences"]
+
         captions_raw = all_data["captions"]
         self.image_ids = [caption["image_id"] for caption in captions_raw]
         self.captions = [caption['caption'] for caption in captions_raw]
@@ -315,7 +318,7 @@ def train(train_dataset: ClipCocoDataset, val_dataset: ClipCocoDataset, model: C
         model.train()
         for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
             model.zero_grad()
-            tokens, mask, prefix = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32)
+            tokens, mask, prefix, _ = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32)
             outputs = model(tokens, prefix, mask)
             logits = outputs.logits[:, train_dataset.prefix_length - 1: -1]
             loss = nnf.cross_entropy(logits.reshape(-1, logits.shape[-1]), tokens.flatten(), ignore_index=0)

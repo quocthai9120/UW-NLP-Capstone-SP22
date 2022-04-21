@@ -1,6 +1,6 @@
 import torch
 import skimage.io as io
-import ClIP.clip as clip
+import CLIP.clip as clip
 from PIL import Image
 import pickle
 import json
@@ -10,7 +10,7 @@ import argparse
 
 
 def main(clip_model_type: str, run_type: str):
-    device = torch.device('cuda:0')
+    device = torch.device('cuda')
     clip_model_name = clip_model_type.replace('/', '_')
     out_path = f"./data/coco/oscar_split_{clip_model_name}_{run_type}.pkl"
     clip_model, preprocess = clip.load(clip_model_type, device=device, jit=False)

@@ -13,8 +13,6 @@ import json
 from typing import Tuple, Optional, Union
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-from PIL import Image
-import skimage.io as io
 
 class MappingType(Enum):
     MLP = 'mlp'
@@ -78,23 +76,6 @@ class ClipCocoDataset(Dataset):
                 pickle.dump([self.captions_tokens, self.caption2embedding, max_seq_len], f)
         all_len = torch.tensor([len(self.captions_tokens[i]) for i in range(len(self))]).float()
         self.max_seq_len = min(int(all_len.mean() + all_len.std() * 10), int(all_len.max()))
-
-class ClipCocoImageDataset(ClipCocoDataset):
-    def __init__(self, data_path: str, prefix_length: int, gpt2_type: str = "gpt2", normalize_prefix=False, image_path: str = None, clip_model=None, preprocess=None):
-        super().__init__(data_path, prefix_length, gpt2_type, normalize_prefix)
-        if "train" in data_path:
-            self.image_path = sorted([x for x in os.listdir(os.path.join("./", "train2014")) if x.endswith(".jpg")])
-        else:
-            self.image_path = sorted([x for x in os.listdir(os.path.join("./", "val2014")) if x.endswith(".jpg")])
-
-        self.clip_model = clip_model
-        self.preprocess = preprocess
-
-    def __getitem__(self, item: int) -> Tuple[torch.Tensor, ...]:
-        tokens, mask, prefix = super().__getitem__(item)
-        image = io.imread(self.image_path[item])
-        image = self.preprocess(Image.fromarray(image))
-        return tokens, mask, prefix, image
 
 class MLP(nn.Module):
 
@@ -251,12 +232,18 @@ class ClipCaptionModel(nn.Module):
             labels = torch.cat((dummy_token, tokens), dim=1)
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
         if self.refinement:
-            pass
-        # return out
+            text_features = self.clip_model.encode_text(out)
+            # TODO concatenate text_features with previous image features, feed to second mapper
+            cat_features = torch.cat([prefix, text_features], dim=1)
+            cat_features_projected = self.clip_project2(cat_features).view(-1, self.prefix_length, self.gpt_embedding_size)
+            embedding_cat2 = torch.cat((cat_features_projected, embedding_text), dim=1)
+            out = self.gpt(inputs_embeds=embedding_cat2, labels=labels, attention_mask=mask)
+            # TODO should be okay to set this is the output for now, but we should have both back-propped for improved learning
+        return out
 
     def __init__(self, prefix_length: int, clip_length: Optional[int] = None, prefix_size: int = 512,
-                 num_layers: int = 8, mapping_type: MappingType = MappingType.MLP, refinement=True):
-        super(ClipCaptionModel, self).__init__()
+                 num_layers: int = 8, mapping_type: MappingType = MappingType.MLP, refinement=True, clip_model=None):
+        super(ClipCaptrefinementionModel, self).__init__()
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained('gpt2')
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
@@ -268,11 +255,13 @@ class ClipCaptionModel(nn.Module):
                                                                      clip_length, num_layers)
         self.refinement = refinement
         if refinement:
+            assert clip_model is not None, "CLIP model must be included for iterative refinement model!"
+            self.clip_model = clip_model
             if mapping_type == MappingType.MLP:
-                self.clip_project2 = MLP((prefix_size, (self.gpt_embedding_size * prefix_length) // 2,
+                self.clip_project2 = MLP((prefix_size, (self.gpt_embedding_size * 2 * prefix_length) // 2,
                                         self.gpt_embedding_size * prefix_length))
             else:
-                self.clip_project2 = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
+                self.clip_project2 = TransformerMapper(prefix_size, self.gpt_embedding_size * 2, prefix_length,
                                                                         clip_length, num_layers)
 
 

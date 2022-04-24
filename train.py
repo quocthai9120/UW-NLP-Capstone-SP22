@@ -12,7 +12,9 @@ import argparse
 import json
 from typing import Tuple, Optional, Union
 import numpy as np
-#from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
+from PIL import Image
+import skimage.io as io
 
 class MappingType(Enum):
     MLP = 'mlp'
@@ -77,6 +79,22 @@ class ClipCocoDataset(Dataset):
         all_len = torch.tensor([len(self.captions_tokens[i]) for i in range(len(self))]).float()
         self.max_seq_len = min(int(all_len.mean() + all_len.std() * 10), int(all_len.max()))
 
+class ClipCocoImageDataset(ClipCocoDataset):
+    def __init__(self, data_path: str, prefix_length: int, gpt2_type: str = "gpt2", normalize_prefix=False, image_path: str = None, clip_model=None, preprocess=None):
+        super().__init__(data_path, prefix_length, gpt2_type, normalize_prefix)
+        if "train" in data_path:
+            self.image_path = sorted([x for x in os.listdir(os.path.join("./", "train2014")) if x.endswith(".jpg")])
+        else:
+            self.image_path = sorted([x for x in os.listdir(os.path.join("./", "val2014")) if x.endswith(".jpg")])
+
+        self.clip_model = clip_model
+        self.preprocess = preprocess
+
+    def __getitem__(self, item: int) -> Tuple[torch.Tensor, ...]:
+        tokens, mask, prefix = super().__getitem__(item)
+        image = io.imread(self.image_path[item])
+        image = self.preprocess(Image.fromarray(image))
+        return tokens, mask, prefix, image
 
 class MLP(nn.Module):
 
@@ -232,10 +250,12 @@ class ClipCaptionModel(nn.Module):
             dummy_token = self.get_dummy_token(tokens.shape[0], tokens.device)
             labels = torch.cat((dummy_token, tokens), dim=1)
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
-        return out
+        if self.refinement:
+            pass
+        # return out
 
     def __init__(self, prefix_length: int, clip_length: Optional[int] = None, prefix_size: int = 512,
-                 num_layers: int = 8, mapping_type: MappingType = MappingType.MLP):
+                 num_layers: int = 8, mapping_type: MappingType = MappingType.MLP, refinement=True):
         super(ClipCaptionModel, self).__init__()
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained('gpt2')
@@ -246,6 +266,15 @@ class ClipCaptionModel(nn.Module):
         else:
             self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
                                                                      clip_length, num_layers)
+        self.refinement = refinement
+        if refinement:
+            if mapping_type == MappingType.MLP:
+                self.clip_project2 = MLP((prefix_size, (self.gpt_embedding_size * prefix_length) // 2,
+                                        self.gpt_embedding_size * prefix_length))
+            else:
+                self.clip_project2 = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
+                                                                        clip_length, num_layers)
+
 
 
 class ClipCaptionPrefix(ClipCaptionModel):
@@ -379,10 +408,13 @@ def main():
     parser.add_argument('--num_layers', type=int, default=8)
     parser.add_argument('--is_rn', dest='is_rn', action='store_true')
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
+    parser.add_argument('--clip_model_type', type=str)
     args = parser.parse_args()
     prefix_length = args.prefix_length
-    train_dataset = ClipCocoDataset(args.data, prefix_length, normalize_prefix=args.normalize_prefix)
-    val_dataset = ClipCocoDataset(args.data.replace("train", "val"), prefix_length, normalize_prefix=args.normalize_prefix)
+    device = torch.device('cuda:0')
+    clip_model, preprocess = clip.load(args.clip_model_type, device=device, jit=False)
+    train_dataset = ClipCocoImageDataset(args.data, prefix_length, normalize_prefix=args.normalize_prefix, image_path="./data/coco/", clip_model=clip_model, preprocess=preprocess)
+    val_dataset = ClipCocoImageDataset(args.data.replace("train", "val"), prefix_length, normalize_prefix=args.normalize_prefix)
     prefix_dim = 640 if args.is_rn else 512
     args.mapping_type = {'mlp': MappingType.MLP, 'transformer': MappingType.Transformer}[args.mapping_type]
     if args.only_prefix:

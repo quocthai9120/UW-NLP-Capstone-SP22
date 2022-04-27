@@ -4,7 +4,10 @@ from torch.nn import functional as nnf
 from torch.utils.data import Dataset, DataLoader
 from enum import Enum
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, AdamW, get_linear_schedule_with_warmup
+import skimage.io as io
+from PIL import Image
 from tqdm import tqdm
+from CLIP import clip
 import os
 import pickle
 import sys
@@ -41,39 +44,40 @@ class ClipCocoDataset(Dataset):
 
     def __getitem__(self, item: int) -> Tuple[torch.Tensor, ...]:
         tokens, mask = self.pad_tokens(item)
-        prefix = self.prefixes[self.caption2embedding[item]]
+
+        image_id = self.caption_data[item]["image_id"]
+        image_path = f"./data/coco/{self.run_type}2014/COCO_train2014_{int(image_id):012d}.jpg"
+        image = io.imread(image_path)
+        image = self.preprocess(Image.fromarray(image)).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            prefix = self.clip_model.encode_image(image).cpu()
+
         if self.normalize_prefix:
             prefix = prefix.float()
             prefix = prefix / prefix.norm(2, -1)
         return tokens, mask, prefix
 
-    def __init__(self, data_path: str,  prefix_length: int, gpt2_type: str = "gpt2",
-                 normalize_prefix=False):
+    def __init__(self, run_type: str,  prefix_length: int, gpt2_type: str = "gpt2", clip_model_type: str = "ViT-B_32", device: str = "cuda", normalize_prefix: bool = False):
+
+        self.run_type = run_type
+        self.device = device
+        self.clip_model, self.preprocess = clip.load(clip_model_type, device=device, jit=False)
         self.tokenizer = GPT2Tokenizer.from_pretrained(gpt2_type)
+
         self.prefix_length = prefix_length
         self.normalize_prefix = normalize_prefix
-        with open(data_path, 'rb') as f:
-            all_data = pickle.load(f)
-        print("Data size is %0d" % len(all_data["clip_embedding"]))
-        sys.stdout.flush()
-        self.prefixes = all_data["clip_embedding"]
-        captions_raw = all_data["captions"]
-        self.image_ids = [caption["image_id"] for caption in captions_raw]
-        self.captions = [caption['caption'] for caption in captions_raw]
-        if os.path.isfile(f"{data_path[:-4]}_tokens.pkl"):
-            with open(f"{data_path[:-4]}_tokens.pkl", 'rb') as f:
-                self.captions_tokens, self.caption2embedding, self.max_seq_len = pickle.load(f)
-        else:
-            self.captions_tokens = []
-            self.caption2embedding = []
-            max_seq_len = 0
-            for caption in captions_raw:
-                self.captions_tokens.append(torch.tensor(self.tokenizer.encode(caption['caption']), dtype=torch.int64))
-                self.caption2embedding.append(caption["clip_embedding"])
-                max_seq_len = max(max_seq_len, self.captions_tokens[-1].shape[0])
-            # self.max_seq_len = max_seq_len
-            with open(f"{data_path[:-4]}_tokens.pkl", 'wb') as f:
-                pickle.dump([self.captions_tokens, self.caption2embedding, max_seq_len], f)
+
+        data_path = f"./data/coco/annotations/{self.run_type}_caption.json"
+        with open(data_path, 'r') as f:
+            self.caption_data = json.load(f)
+        
+        self.captions_tokens = []
+        self.caption2embedding = []
+        max_seq_len = 0
+
+        for caption in self.caption_data:
+            self.captions_tokens.append(torch.tensor(self.tokenizer.encode(caption['caption']), dtype=torch.int64))
+            max_seq_len = max(max_seq_len, self.captions_tokens[-1].shape[0])
         all_len = torch.tensor([len(self.captions_tokens[i]) for i in range(len(self))]).float()
         self.max_seq_len = min(int(all_len.mean() + all_len.std() * 10), int(all_len.max()))
 
@@ -381,8 +385,8 @@ def main():
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
     args = parser.parse_args()
     prefix_length = args.prefix_length
-    train_dataset = ClipCocoDataset(args.data, prefix_length, normalize_prefix=args.normalize_prefix)
-    val_dataset = ClipCocoDataset(args.data.replace("train", "val"), prefix_length, normalize_prefix=args.normalize_prefix)
+    train_dataset = ClipCocoDataset(run_type="train", prefix_length=prefix_length, normalize_prefix=args.normalize_prefix)
+    val_dataset = ClipCocoDataset(run_type="val", prefix_length=prefix_length, normalize_prefix=args.normalize_prefix)
     prefix_dim = 640 if args.is_rn else 512
     args.mapping_type = {'mlp': MappingType.MLP, 'transformer': MappingType.Transformer}[args.mapping_type]
     if args.only_prefix:

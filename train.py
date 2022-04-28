@@ -45,7 +45,6 @@ class ClipCocoDataset(Dataset):
 
     def __getitem__(self, item: int) -> Tuple[torch.Tensor, ...]:
         tokens, mask = self.pad_tokens(item)
-
         image_id = self.caption_data[item]["image_id"]
         train_path = f"./data/coco/train2014/COCO_train2014_{int(image_id):012d}.jpg"
         val_path = f"./data/coco/val2014/COCO_val2014_{int(image_id):012d}.jpg"
@@ -53,12 +52,12 @@ class ClipCocoDataset(Dataset):
         image = io.imread(image_path)
         image = self.preprocess(Image.fromarray(image)).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            prefix = self.clip_model.encode_image(image).cpu()
+            prefix, sequence = self.clip_model.encode_image_with_sequence_embedding(image).cpu()
 
         if self.normalize_prefix:
             prefix = prefix.float()
             prefix = prefix / prefix.norm(2, -1)
-        return tokens, mask, prefix
+        return tokens, mask, prefix, sequence
 
     def __init__(self, run_type: str,  prefix_length: int, gpt2_type: str = "gpt2", clip_model_type: str = "ViT-B/32", device: str = "cuda", normalize_prefix: bool = False):
 
@@ -210,16 +209,23 @@ class Transformer(nn.Module):
 
 class TransformerMapper(nn.Module):
 
-    def forward(self, x):
+    def forward(self, x, sequence_embedding):
         x = self.linear(x).view(x.shape[0], self.clip_length, -1)
+
         prefix = self.prefix_const.unsqueeze(0).expand(x.shape[0], *self.prefix_const.shape)
         prefix = torch.cat((x, prefix), dim=1)
+        prefix = prefix + self.alpha * self.cross_attention(prefix, sequence_embedding.squeeze(dim=1))
+
         out = self.transformer(prefix)[:, self.clip_length:]
         return out
 
-    def __init__(self, dim_clip: int, dim_embedding: int, prefix_length: int, clip_length: int, num_layers: int = 8):
+    def __init__(self, dim_clip: int, dim_clip_sequence_embedding: int, dim_embedding: int, prefix_length: int, clip_length: int, num_layers: int = 8):
         super(TransformerMapper, self).__init__()
         self.clip_length = clip_length
+        
+        self.alpha = nn.Parameter(torch.zeros([]))
+        self.cross_attention = MultiHeadAttention(dim_embedding, dim_clip_sequence_embedding, num_heads=8)
+
         self.transformer = Transformer(dim_embedding, 8, num_layers)
         self.linear = nn.Linear(dim_clip, clip_length * dim_embedding)
         self.prefix_const = nn.Parameter(torch.randn(prefix_length, dim_embedding), requires_grad=True)
@@ -230,10 +236,10 @@ class ClipCaptionModel(nn.Module):
     def get_dummy_token(self, batch_size: int, device: torch.device) -> torch.Tensor:
         return torch.zeros(batch_size, self.prefix_length, dtype=torch.int64, device=device)
 
-    def forward(self, tokens: torch.Tensor, prefix: torch.Tensor, mask: Optional[torch.Tensor] = None,
+    def forward(self, tokens: torch.Tensor, prefix: torch.Tensor, sequence_embedding: torch.Tensor, mask: Optional[torch.Tensor] = None,
                 labels: Optional[torch.Tensor] = None):
         embedding_text = self.gpt.transformer.wte(tokens)
-        prefix_projections = self.clip_project(prefix).view(-1, self.prefix_length, self.gpt_embedding_size)
+        prefix_projections = self.clip_project(prefix, sequence_embedding).view(-1, self.prefix_length, self.gpt_embedding_size)
         embedding_cat = torch.cat((prefix_projections, embedding_text), dim=1)
         if labels is not None:
             dummy_token = self.get_dummy_token(tokens.shape[0], tokens.device)
@@ -241,17 +247,13 @@ class ClipCaptionModel(nn.Module):
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
         return out
 
-    def __init__(self, prefix_length: int, clip_length: Optional[int] = None, prefix_size: int = 512,
-                 num_layers: int = 8, mapping_type: MappingType = MappingType.MLP):
+    def __init__(self, prefix_length: int, clip_length: Optional[int] = None, prefix_size: int = 512, prefix_sequence_embedding_size: int = 768,
+                 num_layers: int = 8):
         super(ClipCaptionModel, self).__init__()
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained('gpt2')
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
-        if mapping_type == MappingType.MLP:
-            self.clip_project = MLP((prefix_size, (self.gpt_embedding_size * prefix_length) // 2,
-                                     self.gpt_embedding_size * prefix_length))
-        else:
-            self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
+        self.clip_project = TransformerMapper(prefix_size, prefix_sequence_embedding_size, self.gpt_embedding_size, prefix_length,
                                                                      clip_length, num_layers)
 
 
@@ -320,8 +322,8 @@ def train(train_dataset: ClipCocoDataset, model: ClipCaptionModel, args,
         model.train()
         for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
             model.zero_grad()
-            tokens, mask, prefix = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32)
-            outputs = model(tokens, prefix, mask)
+            tokens, mask, prefix, prefix_sequence = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32)
+            outputs = model(tokens, prefix, prefix_sequence, mask)
             logits = outputs.logits[:, train_dataset.prefix_length - 1: -1]
             loss = nnf.cross_entropy(logits.reshape(-1, logits.shape[-1]), tokens.flatten(), ignore_index=0)
             loss.backward()

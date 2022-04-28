@@ -225,6 +225,7 @@ class ClipCaptionModel(nn.Module):
 
     def forward(self, tokens: torch.Tensor, prefix: torch.Tensor, mask: Optional[torch.Tensor] = None,
                 labels: Optional[torch.Tensor] = None):
+        self.clip_model.eval()
         out_dict = dict()
         embedding_text = self.gpt.transformer.wte(tokens)
         prefix_projections = self.clip_project(prefix).view(-1, self.prefix_length, self.gpt_embedding_size)
@@ -239,7 +240,7 @@ class ClipCaptionModel(nn.Module):
             outputs = out_dict["caption_1"].logits.argmax(-1)
             output_list = []
             for out in outputs:
-                out = self.tke.decode(out)
+                out = self.tke.decode(out)[:60]
                 out = clip.tokenize(out).to(self.device)
                 output_list.append(self.clip_model.encode_text(out))
 
@@ -247,8 +248,8 @@ class ClipCaptionModel(nn.Module):
             cat_features = out_tokens + prefix
             # TODO concatenate text_features with previous image features, feed to second mapper
             # cat_features = torch.cat([prefix, text_features], dim=1)
-            print(self.clip_project2(cat_features).shape)
-            print(self.prefix_length, self.gpt_embedding_size)
+            # print(self.clip_project2(cat_features).shape)
+            # print(self.prefix_length, self.gpt_embedding_size)
             cat_features_projected = self.clip_project2(cat_features).view(-1, self.prefix_length, self.gpt_embedding_size)
             embedding_cat2 = torch.cat((cat_features_projected, embedding_text), dim=1)
             out_dict["caption_2"] = self.gpt(inputs_embeds=embedding_cat2, labels=labels, attention_mask=mask)
@@ -377,7 +378,8 @@ def train(train_dataset: ClipCocoDataset, val_dataset: ClipCocoDataset, model: C
         for idx, (tokens, mask, prefix) in enumerate(val_dataloader):
             tokens, mask, prefix = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32)
             outputs = model(tokens, prefix, mask)
-            logits = outputs.logits[:,val_dataset.prefix_length - 1: -1]
+            # logits = outputs.logits[:,val_dataset.prefix_length - 1: -1]
+            logits = outputs["caption_2"].logits[:, val_dataset.prefix_length - 1: -1]
             loss = nnf.cross_entropy(logits.reshape(-1, logits.shape[-1]), tokens.flatten(), ignore_index=0)
             progress.set_postfix({"val_loss": loss.item()})
             progress.update()

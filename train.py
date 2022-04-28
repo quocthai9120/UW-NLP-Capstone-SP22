@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from torch.nn import functional as nnf
@@ -46,7 +47,9 @@ class ClipCocoDataset(Dataset):
         tokens, mask = self.pad_tokens(item)
 
         image_id = self.caption_data[item]["image_id"]
-        image_path = f"./data/coco/{self.run_type}2014/COCO_train2014_{int(image_id):012d}.jpg"
+        train_path = f"./data/coco/train2014/COCO_train2014_{int(image_id):012d}.jpg"
+        val_path = f"./data/coco/val2014/COCO_val2014_{int(image_id):012d}.jpg"
+        image_path = train_path if os.path.exists(train_path) else val_path
         image = io.imread(image_path)
         image = self.preprocess(Image.fromarray(image)).unsqueeze(0).to(self.device)
         with torch.no_grad():
@@ -57,7 +60,7 @@ class ClipCocoDataset(Dataset):
             prefix = prefix / prefix.norm(2, -1)
         return tokens, mask, prefix
 
-    def __init__(self, run_type: str,  prefix_length: int, gpt2_type: str = "gpt2", clip_model_type: str = "ViT-B_32", device: str = "cuda", normalize_prefix: bool = False):
+    def __init__(self, run_type: str,  prefix_length: int, gpt2_type: str = "gpt2", clip_model_type: str = "ViT-B/32", device: str = "cuda", normalize_prefix: bool = False):
 
         self.run_type = run_type
         self.device = device
@@ -296,7 +299,7 @@ def load_model(config_path: str, epoch_or_latest: Union[str, int] = '_latest'):
 def train(train_dataset: ClipCocoDataset, model: ClipCaptionModel, args,
           lr: float = 2e-5, warmup_steps: int = 5000, output_dir: str = ".", output_prefix: str = ""):
 
-    writer = SummaryWriter(log_dir="./logs")
+#    writer = SummaryWriter(log_dir="./logs")
     device = torch.device('cuda:0')
     batch_size = args.bs
     epochs = args.epochs
@@ -327,10 +330,10 @@ def train(train_dataset: ClipCocoDataset, model: ClipCaptionModel, args,
             optimizer.zero_grad()
             progress.set_postfix({"train_loss": loss.item()})
             progress.update()
-            writer.add_scalar(
-                    'Train/batchloss',
-                    float(loss),
-                    len(train_dataloader) * epoch + idx)
+#            writer.add_scalar(
+#                    'Train/batchloss',
+#                    float(loss),
+#                    len(train_dataloader) * epoch + idx)
         progress.close()
         torch.save(model.state_dict(), os.path.join(output_dir, f"{output_prefix}_{epoch}.pt"))
     return model

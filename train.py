@@ -52,7 +52,8 @@ class ClipCocoDataset(Dataset):
         image = io.imread(image_path)
         image = self.preprocess(Image.fromarray(image)).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            prefix, sequence = self.clip_model.encode_image_with_sequence_embedding(image).cpu()
+            prefix, sequence = self.clip_model.encode_image_with_sequence_embedding(image)
+            prefix, sequence = prefix.cpu(), sequence.cpu()
 
         if self.normalize_prefix:
             prefix = prefix.float()
@@ -214,7 +215,8 @@ class TransformerMapper(nn.Module):
 
         prefix = self.prefix_const.unsqueeze(0).expand(x.shape[0], *self.prefix_const.shape)
         prefix = torch.cat((x, prefix), dim=1)
-        prefix = prefix + self.alpha * self.cross_attention(prefix, sequence_embedding.squeeze(dim=1))
+        sequence_embedding = sequence_embedding.squeeze(1)
+        prefix = prefix + self.alpha * self.cross_attention(prefix, sequence_embedding)[0]
 
         out = self.transformer(prefix)[:, self.clip_length:]
         return out
@@ -320,9 +322,9 @@ def train(train_dataset: ClipCocoDataset, model: ClipCaptionModel, args,
         sys.stdout.flush()
         progress = tqdm(total=len(train_dataloader), desc=output_prefix)
         model.train()
-        for idx, (tokens, mask, prefix) in enumerate(train_dataloader):
+        for idx, (tokens, mask, prefix, prefix_sequence) in enumerate(train_dataloader):
             model.zero_grad()
-            tokens, mask, prefix, prefix_sequence = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32)
+            tokens, mask, prefix, prefix_sequence = tokens.to(device), mask.to(device), prefix.to(device, dtype=torch.float32), prefix_sequence.to(device, dtype=torch.float32)
             outputs = model(tokens, prefix, prefix_sequence, mask)
             logits = outputs.logits[:, train_dataset.prefix_length - 1: -1]
             loss = nnf.cross_entropy(logits.reshape(-1, logits.shape[-1]), tokens.flatten(), ignore_index=0)
@@ -363,7 +365,7 @@ def main():
     args.mapping_type = {'mlp': MappingType.MLP, 'transformer': MappingType.Transformer}[args.mapping_type]
     if args.only_prefix:
         model = ClipCaptionPrefix(prefix_length, clip_length=args.prefix_length_clip, prefix_size=prefix_dim,
-                                  num_layers=args.num_layers, mapping_type=args.mapping_type)
+                                  num_layers=args.num_layers)
         print("Train only prefix")
     else:
         model = ClipCaptionModel(prefix_length, clip_length=args.prefix_length_clip, prefix_size=prefix_dim,

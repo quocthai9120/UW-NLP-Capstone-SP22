@@ -12,7 +12,11 @@ import argparse
 import json
 from typing import Tuple, Optional, Union
 import numpy as np
-#from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
+
+
+DEVICE = torch.device('cuda:0')
+
 
 class MappingType(Enum):
     MLP = 'mlp'
@@ -225,7 +229,11 @@ class ClipCaptionModel(nn.Module):
 
     def forward(self, tokens: torch.Tensor, prefix: torch.Tensor, mask: Optional[torch.Tensor] = None,
                 labels: Optional[torch.Tensor] = None):
-        embedding_text = self.gpt.transformer.wte(tokens)
+        pos_ids = torch.arange(0, tokens.size(-1)).unsqueeze(0).to(DEVICE)
+        # print("wte", self.gpt.transformer.wte(tokens)[0])
+        # print()
+        # print("wpe", self.gpt.transformer.wpe(pos_ids)[0])
+        embedding_text = self.gpt.transformer.wte(tokens) + self.gpt.transformer.wpe(pos_ids)
         prefix_projections = self.clip_project(prefix).view(-1, self.prefix_length, self.gpt_embedding_size)
         embedding_cat = torch.cat((prefix_projections, embedding_text), dim=1)
         if labels is not None:
@@ -283,7 +291,7 @@ def load_model(config_path: str, epoch_or_latest: Union[str, int] = '_latest'):
         model = ClipCaptionModel(args.prefix_length)
     if os.path.isfile(model_path):
         print(f"loading model from {model_path}")
-        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+        model.load_state_dict(torch.load(model_path, map_location=torch.device(DEVICE)))
     else:
         print(f"{model_path} is not exist")
     return model, parser
@@ -293,7 +301,7 @@ def train(train_dataset: ClipCocoDataset, val_dataset: ClipCocoDataset, model: C
           lr: float = 2e-5, warmup_steps: int = 5000, output_dir: str = ".", output_prefix: str = ""):
 
     writer = SummaryWriter(log_dir="./logs")
-    device = torch.device('cuda:0')
+    device = DEVICE
     batch_size = args.bs
     epochs = args.epochs
     if not os.path.exists(output_dir):
@@ -379,6 +387,7 @@ def main():
     parser.add_argument('--num_layers', type=int, default=8)
     parser.add_argument('--is_rn', dest='is_rn', action='store_true')
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
+    parser.add_argument('--state_dict', type=str, default=None)
     args = parser.parse_args()
     prefix_length = args.prefix_length
     train_dataset = ClipCocoDataset(args.data, prefix_length, normalize_prefix=args.normalize_prefix)
@@ -394,6 +403,12 @@ def main():
                                   num_layers=args.num_layers, mapping_type=args.mapping_type)
         print("Train both prefix and GPT")
         sys.stdout.flush()
+
+    if args.state_dict is not None:
+        print("Loading state dict from", args.state_dict)
+        model.load_state_dict(torch.load(args.state_dict, map_location=torch.device(DEVICE)))
+
+    print("-----------------------------------------------------------------------------------")
     train(train_dataset, val_dataset, model, args, output_dir=args.out_dir, output_prefix=args.prefix)
 
 

@@ -10,7 +10,7 @@ def combine_mscoco_val_train_caption():
     val = json.load(open('data/coco/annotations/captions_val2014.json', 'r'))
     train['annotations'].extend(val['annotations'])
     print("Combine json has", len(train['annotations']), "annotations")
-    json.dump('data/coco/annotations/captions_trainval2014.json')
+    json.dumps('data/coco/annotations/captions_trainval2014.json')
 
 
 def main() -> None:

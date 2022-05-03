@@ -16,6 +16,7 @@ import skimage.io as io
 import PIL.Image
 from train import TransformerMapper
 # import torch
+from tqdm import tqdm
 
 from os import listdir
 from os.path import isfile, join
@@ -317,7 +318,7 @@ def main():
     predictor = Predictor()
     predictor.setup()
 
-    for i, id in enumerate(karpathy_val_image_ids):
+    for i, id in enumerate(tqdm(karpathy_val_image_ids)):
         image_dir = id_to_pathname[id][0]
         image_path = id_to_pathname[id][1]
 

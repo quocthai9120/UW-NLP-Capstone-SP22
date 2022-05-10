@@ -25,22 +25,6 @@ from utils import *
 
 # Used to save text feature embedding from first iteration of the clipcap model.
 
-# N = type(None)
-# V = np.array
-# ARRAY = np.ndarray
-# ARRAYS = Union[Tuple[ARRAY, ...], List[ARRAY]]
-# VS = Union[Tuple[V, ...], List[V]]
-# VN = Union[V, N]
-# VNS = Union[VS, N]
-# T = torch.Tensor
-# TS = Union[Tuple[T, ...], List[T]]
-# TN = Optional[T]
-# TNS = Union[Tuple[TN, ...], List[TN]]
-# TSN = Optional[TS]
-# TA = Union[T, ARRAY]
-
-
-# D = torch.device
 DEVICE = torch.device("cuda:0")
 
 class Predictor:
@@ -52,9 +36,7 @@ class Predictor:
         )
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-        # self.models = {}
         self.prefix_length = args.prefix_length
-        # for key, weights_path in WEIGHTS_PATHS.items():
         weights_path = args.weights
         prefix_size= 640 if args.is_rn else 512
         if args.text_data is not None:

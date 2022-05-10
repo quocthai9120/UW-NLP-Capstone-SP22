@@ -52,15 +52,16 @@ class ClipCocoDataset(Dataset):
         image = io.imread(image_path)
         image = self.preprocess(Image.fromarray(image)).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            prefix, sequence = self.clip_model.encode_image_with_sequence_embedding(image)
+            prefix, sequence = self.clip_model.encode_image_with_sequence_embedding(image, layer_index=-2)
             prefix, sequence = prefix.cpu(), sequence.cpu()
+            prefix, sequence = prefix.squeeze(0), sequence.squeeze(0)
 
         if self.normalize_prefix:
             prefix = prefix.float()
             prefix = prefix / prefix.norm(2, -1)
         return tokens, mask, prefix, sequence
 
-    def __init__(self, run_type: str,  prefix_length: int, gpt2_type: str = "gpt2", clip_model_type: str = "ViT-B/32", device: str = "cuda", normalize_prefix: bool = False):
+    def __init__(self, run_type: str, prefix_length: int, gpt2_type: str = "gpt2", clip_model_type: str = "ViT-B/32", device: str = "cuda", normalize_prefix: bool = False):
 
         self.run_type = run_type
         self.device = device

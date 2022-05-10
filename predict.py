@@ -70,7 +70,7 @@ class Predictor:
         pil_image = PIL.Image.fromarray(image)
         image = self.preprocess(pil_image).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            prefix, sequence_embedding = self.clip_model.encode_image_with_sequence_embedding(image)
+            prefix, sequence_embedding = self.clip_model.encode_image_with_sequence_embedding(image, layer_index=-2)
             prefix = prefix.to(self.device, dtype=torch.float32)
             sequence_embedding = sequence_embedding.to(self.device, dtype=torch.float32)
 

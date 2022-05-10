@@ -3,9 +3,10 @@
 from torch.nn import functional as nnf
 
 class LossManager():
-    def __init__(self, weights=[1.0, 0.5]):
+    """Loss handling"""
+    def __init__(self, weights=[1.0]):
         self.weights = weights
-        self.loss_outputs = ["caption_1_logits"]#, "caption_2_logits"]
+        self.loss_outputs = ["caption_logits"]
     def get_loss(self, pred_dict, label):
         """
         Since the groundtruth remains the same, it is assumed only a single labeld is given.
@@ -23,3 +24,13 @@ class LossManager():
             total_loss += w * loss
         loss_out["loss/total"] = total_loss
         return loss_out
+
+
+# TODO: validation during  callback requires beam search to be ran online,
+#       which seems quite expensive for current sequential implementation atm.
+# class CallBackManager():
+#     """Metric handling"""
+#     def __init__(self, metrics=["bleu4"]):
+#         self.metrics = metrics
+#     def get_metric(self, pred, label):
+#         self

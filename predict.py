@@ -24,27 +24,32 @@ from train import *
 from utils import *
 
 
-N = type(None)
-V = np.array
-ARRAY = np.ndarray
-ARRAYS = Union[Tuple[ARRAY, ...], List[ARRAY]]
-VS = Union[Tuple[V, ...], List[V]]
-VN = Union[V, N]
-VNS = Union[VS, N]
-T = torch.Tensor
-TS = Union[Tuple[T, ...], List[T]]
-TN = Optional[T]
-TNS = Union[Tuple[TN, ...], List[TN]]
-TSN = Optional[TS]
-TA = Union[T, ARRAY]
+# N = type(None)
+# V = np.array
+# ARRAY = np.ndarray
+# ARRAYS = Union[Tuple[ARRAY, ...], List[ARRAY]]
+# VS = Union[Tuple[V, ...], List[V]]
+# VN = Union[V, N]
+# VNS = Union[VS, N]
+# T = torch.Tensor
+# TS = Union[Tuple[T, ...], List[T]]
+# TN = Optional[T]
+# TNS = Union[Tuple[TN, ...], List[TN]]
+# TSN = Optional[TS]
+# TA = Union[T, ARRAY]
 
-WEIGHTS_PATHS = {
-    # "coco": "data/coco/coco_prefix_best.pt",
-    "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/coco_train/coco_prefix_best.pt"
-}
+# WEIGHTS_PATHS = {
+#     # "coco": "data/coco/coco_prefix_best.pt",
+#     "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/pretrain/coco_prefix_best.pt"
+#     # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/coco_train/coco_prefix_best.pt"
+#     # refinement
+#     # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/refinement_v1/coco-prefix_refinment-v1_best.pt",
+#     # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/refinement_v1-concat/coco-prefix_refinment-v1-concat_6.pt",
+#     # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/refinement_v1-concat/coco-prefix_refinment-v1-concat_best.pt",
+#     # "base_model": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/pretrain/coco_prefix_best.pt"
+# }
 
-D = torch.device
-CPU = torch.device("cuda:0")
+DEVICE = torch.device("cuda:0")
 
 
 class Predictor:
@@ -56,103 +61,81 @@ class Predictor:
         )
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-        self.models = {}
-        self.prefix_length = 40
-        for key, weights_path in WEIGHTS_PATHS.items():
+        # self.models = {}
+        self.prefix_length = args.prefix_length
+        # for key, weights_path in WEIGHTS_PATHS.items():
+        weights_path = args.weights
+        prefix_size= 640 if args.is_rn else 512
+        if args.text_data is not None:
+            prefix_size *= 2
+
+        if args.only_prefix:
+            model = ClipCaptionPrefix(
+                self.prefix_length,
+                clip_length=args.prefix_length_clip,
+                prefix_size=prefix_size,
+                num_layers=args.num_layers,
+                mapping_type=args.mapping_type,
+            )
+        else:
             model = ClipCaptionModel(
                 self.prefix_length,
                 clip_length = args.prefix_length_clip,
-                prefix_size= 640 if args.is_rn else 512,
+                prefix_size=prefix_size,
                 num_layers = args.num_layers,
                 mapping_type=args.mapping_type,
-                refinement=True,
-                clip_model=self.clip_model,
-                tokenizer=GPT2Tokenizer.from_pretrained("gpt2"))
-            model.load_state_dict(torch.load(weights_path, map_location=CPU))
-            model = model.eval()
-            model = model.to(self.device)
-            self.models[key] = model
-
-    def predict(self, image, model, use_beam_search):
-        """Run a single prediction on the model"""
-        image = io.imread(image)
-        model = self.models[model]
-        pil_image = PIL.Image.fromarray(image)
-        image = self.preprocess(pil_image).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            prefix = self.clip_model.encode_image(image).to(
-                self.device, dtype=torch.float32
             )
-            prefix_embed_1 = model.clip_project(prefix).reshape(1, self.prefix_length, -1)
-            # generate refinedment prediction
-            init_caption = generate2(model, self.tokenizer, embed=prefix_embed_1)
-            out = clip.tokenize(init_caption).to(self.device)
-            out = model.clip_model.encode_text(out)
-            prefix_2 = prefix + out
-            prefix_embed = model.clip_project2(prefix_2).reshape(1, self.prefix_length, -1)
+        model.load_state_dict(torch.load(weights_path, map_location=DEVICE))
+        model = model.eval()
+        model = model.to(self.device)
+        self.model = model
+
+    def predict(self, sample, use_beam_search, base_model="base_model"):
+        """Run a single prediction on the model"""
+        (tokens, mask, prefix) = sample
+        with torch.no_grad():
+            prefix_embed = self.model(tokens, prefix, mask)["prefix"]
+            # prefix_embed = self.model.clip_project(prefix).reshape(1, self.prefix_length, -1)
         if use_beam_search:
-            return generate_beam(model, self.tokenizer, embed=prefix_embed)[0]
+            return generate_beam(self.model, self.tokenizer, embed=prefix_embed)[0]
         else:
-            return generate2(model, self.tokenizer, embed=prefix_embed)
-
-def map_images_id_to_pathname():
-    id_to_pathname = dict()
-
-    # add val data map
-    f = json.load(open('data/coco/annotations/captions_val2014.json', 'r'))
-
-    for i in range(len(f['images'])):
-        id_to_pathname[str(f['images'][i]['id'])] = ('data/coco/val2014/', f['images'][i]['file_name'])
-
-    # add train data map
-    f = json.load(open('data/coco/annotations/captions_train2014.json', 'r'))
-
-    for i in range(len(f['images'])):
-        id_to_pathname[str(f['images'][i]['id'])] = ('data/coco/train2014/', f['images'][i]['file_name'])
-
-    print("Len of id_to_pathname is:", len(id_to_pathname))
-    torch.save(id_to_pathname, 'data/coco/id_to_pathname.pt')
-
-    return id_to_pathname
-
-
-def get_karpathy_image_ids(path='data/coco/annotations/val_caption.json'):
-    f = json.load(open(path, 'r'))
-
-    result = [element['image_id'] for element in f]
-    print("Length of elements in", path, "is", len(result))
-    return result
+            return generate2(self.model, self.tokenizer, embed=prefix_embed)
 
 
 def main(args):
-    id_to_pathname = map_images_id_to_pathname()
-    karpathy_val_image_ids = set(get_karpathy_image_ids())
-
-    print("Len karpathy_val_image_ids is", len(karpathy_val_image_ids))
+    val_dataset = ClipCocoDataset(args.data, args.prefix_length, 
+        normalize_prefix=args.normalize_prefix,
+        text_data_path=args.text_data,
+        unique=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, drop_last=False)
+    print(f"Validation dataset size is {len(val_dataloader)}")
 
     val_pred_captions = list()
     model = "coco"
     use_beam_search = True
+    save_tag = args.tag
 
     predictor = Predictor()
     predictor.setup(args)
-
-    for i, id in enumerate(tqdm(karpathy_val_image_ids)):
-        image_dir = id_to_pathname[id][0]
-        image_path = id_to_pathname[id][1]
-
-        result = predictor.predict(image_dir + image_path, model, use_beam_search)
-        val_pred_captions.append({"image_id" : id, "caption" : result})
+    ids = val_dataset.image_ids
+    assert len(ids) == len(val_dataloader), "number of image_ids does not match dataloader size!"
+    for i, (tokens, mask, prefix) in enumerate(tqdm(val_dataloader)):
+        tokens, mask, prefix = tokens.to(DEVICE), mask.to(DEVICE), prefix.to(DEVICE, dtype=torch.float32)
+        result = predictor.predict((tokens, mask, prefix), use_beam_search)
+        val_pred_captions.append({"image_id" : ids[i], "caption" : result})
 
         if i % 100 == 0:
-            json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
-            print("Step", i, "-- Image", image_path, "-- Caption:", result)
+            json.dump(val_pred_captions, open(f"{args.out_dir}/pred_val_caption_{save_tag}.json", "w"))
+            print("Step", i, "-- Image_id", ids[i], "-- Caption:", result)
 
-    json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
+    json.dump(val_pred_captions, open(f"{args.out_dir}/pred_val_caption_{save_tag}.json", "w"))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('--data', default='./data/coco/oscar_split_train.pkl')
+    parser.add_argument('--text_data', default=None)
+    parser.add_argument('--weights', type=str, required=True)
     parser.add_argument('--prefix_length', type=int, default=10)
     parser.add_argument('--prefix_length_clip', type=int, default=10)
     parser.add_argument('--only_prefix', dest='only_prefix', action='store_true')
@@ -161,5 +144,7 @@ if __name__ == "__main__":
     parser.add_argument('--is_rn', dest='is_rn', action='store_true')
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
     parser.add_argument('--clip_model_type', type=str)
+    parser.add_argument('--tag', type=str)
+    parser.add_argument('--out_dir', default='./checkpoints')
     args = parser.parse_args()
     main(args)

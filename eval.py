@@ -2,6 +2,7 @@ from pycocotools.coco import COCO
 from pycocoevalcap.eval import COCOEvalCap
 import json
 from json import encoder
+import argparse
 
 encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 
@@ -13,16 +14,23 @@ def combine_mscoco_val_train_caption():
     json.dumps('data/coco/annotations/captions_trainval2014.json')
 
 
-def main() -> None:
+def main(args) -> None:
     combine_mscoco_val_train_caption()
 
-    preds_captions = 'data/coco/annotations/pred_val_caption.json'
+    # preds_captions = 'data/coco/annotations/pred_val_caption.json'
+    # preds_captions = "data/coco/annotations/pred_val_caption_refinement-v1.json"
+    # preds_captions = "data/coco/annotations/pred_val_caption_refinement-v1-concat.json" # epoch 6
+    # preds_captions = "data/coco/annotations/pred_val_caption_refinement-v1-concat-best.json" # best epoch
+    # preds_captions = "data/coco/annotations/pred_val_caption_baseline.json"
+    preds_captions = args.preds_captions
     true_captions = 'data/coco/annotations/captions_val2014.json'
 
     coco = COCO(true_captions)
     valids = coco.getImgIds()
 
     preds = json.load(open(preds_captions, 'r'))
+    gt = json.load(open(true_captions, 'r'))
+    print(preds[0], gt['annotations'][0])
 
     for pred in preds:
         pred['image_id'] = int(pred['image_id'])
@@ -47,4 +55,7 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--preds_captions', type=str)
+    args = parser.parse_args()
+    main(args)

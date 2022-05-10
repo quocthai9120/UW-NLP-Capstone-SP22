@@ -22,6 +22,15 @@ We use the [COCO caption evaluation tool](https://github.com/LuoweiZhou/coco-cap
 pip install git+https://github.com/flauted/coco-caption.git@python23
 ```
 
+## Preparing the dataset:
+
+For the captioning and meta data we suggest either downloading our copies or running the preprocessing:
+```
+# download from https://cs.stanford.edu/people/karpathy/deepimagesent/
+wget https://cs.stanford.edu/people/karpathy/deepimagesent/coco.zip
+# unzip, place as data/coco/annotations/dataset_coco.json
+python get_json.py
+```
 
 
 ## Official implementation for the paper ["ClipCap: CLIP Prefix for Image Captioning"](https://arxiv.org/abs/2111.09734)

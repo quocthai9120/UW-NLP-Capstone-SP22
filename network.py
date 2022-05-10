@@ -161,10 +161,11 @@ class ClipCaptionModel(nn.Module):
 
     def forward(self, tokens: torch.Tensor, prefix: torch.Tensor, mask: Optional[torch.Tensor] = None,
                 labels: Optional[torch.Tensor] = None):
-        for param in self.clip_model.parameters():
-            param.requires_grad = False
-        for param in self.gpt.parameters():
-            param.requires_grad = False
+        if self.debug:
+            for param in self.clip_model.parameters():
+                param.requires_grad = False
+            for param in self.gpt.parameters():
+                param.requires_grad = False
         out_dict = dict()
         embedding_text = self.gpt.transformer.wte(tokens)
         prefix_projections = self.clip_project(prefix).view(-1, self.prefix_length, self.gpt_embedding_size)
@@ -173,67 +174,34 @@ class ClipCaptionModel(nn.Module):
             dummy_token = self.get_dummy_token(tokens.shape[0], tokens.device)
             labels = torch.cat((dummy_token, tokens), dim=1)
         caption_1 = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
-        out_dict["prefix_1"] = prefix_projections
-        out_dict["caption_1_logits"] = caption_1.logits[:, self.prefix_length - 1: -1]
-        if self.refinement:
-            outputs = out_dict["prefix_1"]
-            output_list = []
-            for out in outputs:
-                out = out.unsqueeze(0)
-                out = generate2(self, self.tke, embed=out) #, entry_length=40)
-                out = clip.tokenize(out).to(self.device)
-                output_list.append(self.clip_model.encode_text(out))
-
-            out_tokens = torch.cat(output_list)
-            cat_features = out_tokens + prefix
-            # cat_features = torch.cat([out_tokens, prefix], dim=1)
-            # print(cat_features.shape)
-            # concatenate text_features with previous image features, feed to second mapper
-            cat_features_projected = self.clip_project2(cat_features).view(-1, self.prefix_length, self.gpt_embedding_size)
-            embedding_cat2 = torch.cat((cat_features_projected, embedding_text), dim=1)
-            caption_2 = self.gpt(inputs_embeds=embedding_cat2, labels=labels, attention_mask=mask)
-            out_dict["prefix_2"] = cat_features_projected
-            out_dict["caption_2_logits"] = caption_2.logits[:, self.prefix_length - 1: -1]
-            # TODO should be okay to set this is the output for now, but we should have both back-propped for improved learning
+        out_dict["prefix"] = prefix_projections
+        out_dict["caption_logits"] = caption_1.logits[:, self.prefix_length - 1: -1]
         return out_dict
 
     def __init__(self, prefix_length: int, clip_length: Optional[int] = None, prefix_size: int = 512,
-                 num_layers: int = 8, mapping_type: MappingType = MappingType.MLP, refinement=False, clip_model=None, tokenizer=None):
+                 num_layers: int = 8, mapping_type: MappingType = MappingType.MLP, debug=False):
         super(ClipCaptionModel, self).__init__()
         self.device = torch.device('cuda:0')
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained('gpt2')
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
-        self.tke = tokenizer
+        self.debug = debug
         if mapping_type == MappingType.MLP:
             self.clip_project = MLP((prefix_size, (self.gpt_embedding_size * prefix_length) // 2,
                                      self.gpt_embedding_size * prefix_length))
         else:
             self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
                                                                      clip_length, num_layers)
-        self.refinement = refinement
-        if refinement:
-            assert clip_model is not None, "CLIP model must be included for iterative refinement model!"
-            self.clip_model = clip_model
-            if mapping_type == MappingType.MLP:
-                self.clip_project2 = MLP((prefix_size, (self.gpt_embedding_size * prefix_length) // 2,
-                                        self.gpt_embedding_size * prefix_length * 2))
-            else:
-                self.clip_project2 = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length,
-                                                                        clip_length, num_layers // 4)
-
 
 
 class ClipCaptionPrefix(ClipCaptionModel):
 
     def parameters(self, recurse: bool = True):
-        # return list(self.clip_project.parameters()) + list(self.clip_project2.parameters())
         return self.clip_project.parameters()
 
     def train(self, mode: bool = True):
         super(ClipCaptionPrefix, self).train(mode)
         self.gpt.eval()
-        # self.clip_model.eval()
         return self
 
 

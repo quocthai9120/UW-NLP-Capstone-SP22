@@ -24,6 +24,9 @@ def main(clip_model_type: str, run_type: str):
         img_id = d["image_id"]
         if run_type == "train":    
             filename = f"./data/coco/train2014/COCO_train2014_{int(img_id):012d}.jpg"
+            if not os.path.isfile(filename):
+                # some images from karpathy split is in validation
+                filename = f"./data/coco/val2014/COCO_val2014_{int(img_id):012d}.jpg"
         elif run_type == "val":
             filename = f"./data/coco/val2014/COCO_val2014_{int(img_id):012d}.jpg"
         else:
@@ -37,10 +40,9 @@ def main(clip_model_type: str, run_type: str):
         all_captions.append(d)
         if (i + 1) % 10000 == 0:
             with open(out_path, 'wb') as f:
-                pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
-
+                pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions, "img_id": img_id}, f)
     with open(out_path, 'wb') as f:
-        pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
+        pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions, "img_id": img_id}, f)
 
     print('Done')
     print("%0d embeddings saved " % len(all_embeddings))

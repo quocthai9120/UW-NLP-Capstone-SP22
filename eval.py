@@ -30,7 +30,6 @@ def main(args) -> None:
 
     preds = json.load(open(preds_captions, 'r'))
     gt = json.load(open(true_captions, 'r'))
-    print(preds[0], gt['annotations'][0])
 
     for pred in preds:
         pred['image_id'] = int(pred['image_id'])

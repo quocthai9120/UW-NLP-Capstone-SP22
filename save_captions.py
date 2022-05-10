@@ -25,29 +25,23 @@ from utils import *
 
 # Used to save text feature embedding from first iteration of the clipcap model.
 
-N = type(None)
-V = np.array
-ARRAY = np.ndarray
-ARRAYS = Union[Tuple[ARRAY, ...], List[ARRAY]]
-VS = Union[Tuple[V, ...], List[V]]
-VN = Union[V, N]
-VNS = Union[VS, N]
-T = torch.Tensor
-TS = Union[Tuple[T, ...], List[T]]
-TN = Optional[T]
-TNS = Union[Tuple[TN, ...], List[TN]]
-TSN = Optional[TS]
-TA = Union[T, ARRAY]
+# N = type(None)
+# V = np.array
+# ARRAY = np.ndarray
+# ARRAYS = Union[Tuple[ARRAY, ...], List[ARRAY]]
+# VS = Union[Tuple[V, ...], List[V]]
+# VN = Union[V, N]
+# VNS = Union[VS, N]
+# T = torch.Tensor
+# TS = Union[Tuple[T, ...], List[T]]
+# TN = Optional[T]
+# TNS = Union[Tuple[TN, ...], List[TN]]
+# TSN = Optional[TS]
+# TA = Union[T, ARRAY]
 
-WEIGHTS_PATHS = {
-    # "coco": "data/coco/coco_prefix_best.pt",
-    # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/coco_train/coco_prefix_best.pt"
-    "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/pretrain/coco_prefix_best.pt"
-}
 
-D = torch.device
-CPU = torch.device("cuda:0")
-
+# D = torch.device
+DEVICE = torch.device("cuda:0")
 
 class Predictor:
     def setup(self, args):
@@ -58,20 +52,34 @@ class Predictor:
         )
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
-        self.models = {}
-        self.prefix_length = 40
-        for key, weights_path in WEIGHTS_PATHS.items():
+        # self.models = {}
+        self.prefix_length = args.prefix_length
+        # for key, weights_path in WEIGHTS_PATHS.items():
+        weights_path = args.weights
+        prefix_size= 640 if args.is_rn else 512
+        if args.text_data is not None:
+            prefix_size *= 2
+
+        if args.only_prefix:
             model = ClipCaptionPrefix(
                 self.prefix_length,
+                clip_length=args.prefix_length_clip,
+                prefix_size=prefix_size,
+                num_layers=args.num_layers,
+                mapping_type=args.mapping_type,
+            )
+        else:
+            model = ClipCaptionModel(
+                self.prefix_length,
                 clip_length = args.prefix_length_clip,
-                prefix_size= 640 if args.is_rn else 512,
+                prefix_size=prefix_size,
                 num_layers = args.num_layers,
                 mapping_type=args.mapping_type,
             )
-            model.load_state_dict(torch.load(weights_path, map_location=CPU))
-            model = model.eval()
-            model = model.to(self.device)
-            self.models[key] = model
+        model.load_state_dict(torch.load(weights_path, map_location=DEVICE))
+        model = model.eval()
+        model = model.to(self.device)
+        self.model = model
 
     def predict(self, image, model, use_beam_search):
         """Run a single prediction on the model"""
@@ -88,6 +96,17 @@ class Predictor:
             return generate_beam(model, self.tokenizer, embed=prefix_embed)[0]
         else:
             return generate2(model, self.tokenizer, embed=prefix_embed)
+    
+    def predict2(self, sample, model, use_beam_search):
+        """Run a single prediction on the model"""
+        (tokens, mask, prefix) = sample
+        with torch.no_grad():
+            prefix_embed = self.model(tokens, prefix, mask)["prefix"]
+            # prefix_embed = self.model.clip_project(prefix).reshape(1, self.prefix_length, -1)
+        if use_beam_search:
+            return generate_beam(self.model, self.tokenizer, embed=prefix_embed)[0]
+        else:
+            return generate2(self.model, self.tokenizer, embed=prefix_embed)
 
 
 def main(args):
@@ -101,33 +120,27 @@ def main(args):
     clip_model.eval()
     predictor = Predictor()
     predictor.setup(args)
-    with open(f'./data/coco/annotations/{run_type}_caption.json', 'r') as f:
-        data = json.load(f)
-        print("%0d captions loaded from json " % len(data))
+
+    dataset = ClipCocoDataset(args.data, args.prefix_length, 
+        normalize_prefix=args.normalize_prefix,
+        text_data_path=args.text_data,
+        )
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
+    print(f"Validation dataset size is {len(dataloader)}")
     all_embeddings = []
     all_captions = []
-    for i in tqdm(range(len(data))):
-        d = data[i]
-        img_id = d["image_id"]
-        if run_type == "train":    
-            filename = f"./data/coco/train2014/COCO_train2014_{int(img_id):012d}.jpg"
-            if not os.path.isfile(filename):
-                # some images from karpathy split is in validation
-                filename = f"./data/coco/val2014/COCO_val2014_{int(img_id):012d}.jpg"
-        elif run_type == "val":
-            filename = f"./data/coco/val2014/COCO_val2014_{int(img_id):012d}.jpg"
-        else:
-            raise IOError('Invalid runtype')
-        result = predictor.predict(filename, model, use_beam_search)
+    for i, (tokens, mask, prefix) in enumerate(tqdm(dataloader)):
+        tokens, mask, prefix = tokens.to(DEVICE), mask.to(DEVICE), prefix.to(DEVICE, dtype=torch.float32)
+        sample = (tokens, mask, prefix)
+        result = predictor.predict2(sample, model, use_beam_search)
         generated_caption = clip.tokenize(result).to(device)
         text_prefix = clip_model.encode_text(generated_caption).detach().cpu()
         all_embeddings.append(text_prefix)
-        d["clip_embedding"] = i
-        all_captions.append(d)
+        all_captions.append(dataset.captions[i])
         if i % 100 == 0:
             with open(out_path, 'wb') as f:
                 pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
-            print("Step", i, "-- Image", filename, "-- Caption:", result, "-- feature shape:", torch.cat(all_embeddings, dim=0).shape)
+            print("Step", i, "-- Image", dataset.image_ids[i], "-- Caption:", result, "-- feature shape:", torch.cat(all_embeddings, dim=0).shape)
 
     with open(out_path, 'wb') as f:
         pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
@@ -135,6 +148,8 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument('--data', default='./data/coco/oscar_split_train.pkl')
+    parser.add_argument('--text_data', default=None)
     parser.add_argument('--prefix_length', type=int, default=10)
     parser.add_argument('--prefix_length_clip', type=int, default=10)
     parser.add_argument('--only_prefix', dest='only_prefix', action='store_true')
@@ -145,5 +160,6 @@ if __name__ == "__main__":
     parser.add_argument('--tag', type=str, required=True)
     parser.add_argument('--clip_model_type', default="ViT-B/32", choices=('RN50', 'RN101', 'RN50x4', 'ViT-B/32'))
     parser.add_argument('--run_type', default="train", choices=("train", "val"))
+    parser.add_argument('--weights', type=str, required=True)
     args = parser.parse_args()
     main(args)

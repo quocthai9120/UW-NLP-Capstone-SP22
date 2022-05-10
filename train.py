@@ -105,13 +105,11 @@ class ClipCocoDataset(Dataset):
                 self.captions_tokens.append(torch.tensor(self.tokenizer.encode(caption['caption']), dtype=torch.int64))
                 self.caption2embedding.append(caption["clip_embedding"])
                 max_seq_len = max(max_seq_len, self.captions_tokens[-1].shape[0])
-            # self.max_seq_len = max_seq_len
             with open(f"{data_path[:-4]}_tokens.pkl", 'wb') as f:
                 pickle.dump([self.captions_tokens, self.caption2embedding, max_seq_len], f)
 
         if unique:
-            print(self.prefixes.shape)
-            updated_ids = set()
+            updated_ids = []
             updated_captions = []
             updated_tokens = []
             idxs = []
@@ -121,22 +119,22 @@ class ClipCocoDataset(Dataset):
                 if id_ in updated_ids:
                     continue
                 idxs.append(i)
-                updated_ids.add(id_)
+                updated_ids.append(id_)
                 updated_captions.append(self.captions[i])
                 updated_tokens.append(self.captions_tokens[i])
                 updated_emb.append(self.caption2embedding[i])
-            self.prefixes = self.prefixes[idxs]
-            if self.prefixes_text is not None:
-                self.prefixes_text = self.prefixes_text[idxs]
+            # self.prefixes = self.prefixes[idxs]
+            # if self.prefixes_text is not None:
+            #     self.prefixes_text = self.prefixes_text[idxs]
             self.image_ids = updated_ids
             self.captions = updated_captions
             self.captions_tokens = updated_tokens
             self.caption2embedding = updated_emb
 
         
-        if len(self.captions_tokens) != len(all_data["clip_embedding"]):
-            self.captions_tokens = self.captions_tokens[:len(all_data["clip_embedding"])]
-            print("Warning! token dataset size mismatch with embeddings, truncating tokens...")
+        # if len(self.captions_tokens) != len(all_data["clip_embedding"]):
+        #     self.captions_tokens = self.captions_tokens[:len(all_data["clip_embedding"])]
+        #     print("Warning! token dataset size mismatch with embeddings, truncating tokens...")
         all_len = torch.tensor([len(self.captions_tokens[i]) for i in range(len(self))]).float()
         self.max_seq_len = min(int(all_len.mean() + all_len.std() * 10), int(all_len.max()))
 

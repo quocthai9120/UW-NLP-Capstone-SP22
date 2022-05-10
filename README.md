@@ -2,7 +2,7 @@
 
 ## This code is based on the official implementation for the paper ["ClipCap: CLIP Prefix for Image Captioning"](https://arxiv.org/abs/2111.09734)
 
-We thank the authors for their work and for sharing their ["implementation"]("https://github.com/rmokady/CLIP_prefix_caption")
+We thank the authors for their work and for sharing their [implementation](https://github.com/rmokady/CLIP_prefix_caption)
 
 ## Setup
 For evaluation we use the [COCO caption evaluation tool](https://github.com/LuoweiZhou/coco-caption/tree/de6f385503ac9a4305a1dcdc39c02312f9fa13fc), we suggest installing it via

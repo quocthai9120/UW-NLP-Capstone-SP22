@@ -44,11 +44,10 @@ WEIGHTS_PATHS = {
 D = torch.device
 CPU = torch.device("cpu")
 
-
 class Predictor:
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
-        self.device = torch.device("cuda")
+        self.device = CPU
         self.clip_model, self.preprocess = clip.load(
             "ViT-B/32", device=self.device, jit=False
         )
@@ -62,6 +61,7 @@ class Predictor:
             model = model.eval()
             model = model.to(self.device)
             self.models[key] = model
+            print(model.clip_project.alpha)
 
     def predict(self, image, model, use_beam_search):
         """Run a single prediction on the model"""
@@ -70,10 +70,11 @@ class Predictor:
         pil_image = PIL.Image.fromarray(image)
         image = self.preprocess(pil_image).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            prefix = self.clip_model.encode_image(image).to(
-                self.device, dtype=torch.float32
-            )
-            prefix_embed = model.clip_project(prefix).reshape(1, self.prefix_length, -1)
+            prefix, sequence_embedding = self.clip_model.encode_image_with_sequence_embedding(image)
+            prefix = prefix.to(self.device, dtype=torch.float32)
+            sequence_embedding = sequence_embedding.to(self.device, dtype=torch.float32)
+
+            prefix_embed = model.clip_project(prefix, sequence_embedding).reshape(1, self.prefix_length, -1)
         if use_beam_search:
             return generate_beam(model, self.tokenizer, embed=prefix_embed)[0]
         else:
@@ -123,7 +124,7 @@ class ClipCaptionModel(nn.Module):
         self.prefix_length = prefix_length
         self.gpt = GPT2LMHeadModel.from_pretrained("gpt2")
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
-        self.clip_project = TransformerMapper(prefix_size, self.gpt_embedding_size, prefix_length, prefix_length, 8)
+        self.clip_project = TransformerMapper(prefix_size, 768, self.gpt_embedding_size, prefix_length, prefix_length, 8)
 
 class ClipCaptionPrefix(ClipCaptionModel):
     def parameters(self, recurse: bool = True):
@@ -133,7 +134,6 @@ class ClipCaptionPrefix(ClipCaptionModel):
         super(ClipCaptionPrefix, self).train(mode)
         self.gpt.eval()
         return self
-
 
 def generate_beam(
     model,

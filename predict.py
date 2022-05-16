@@ -112,7 +112,8 @@ def main(args):
 
     val_pred_captions = list()
     model = "coco"
-    use_beam_search = True
+    use_beam_search = args.beam
+    print(f"Beam search: {use_beam_search}")
     save_tag = args.tag
 
     predictor = Predictor()
@@ -134,7 +135,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--data', default='./data/coco/oscar_split_train.pkl')
-    parser.add_argument('--text_data', default=None)
+    parser.add_argument('--text_data', type=str, required=False, default=None)
     parser.add_argument('--weights', type=str, required=True)
     parser.add_argument('--prefix_length', type=int, default=10)
     parser.add_argument('--prefix_length_clip', type=int, default=10)
@@ -146,5 +147,6 @@ if __name__ == "__main__":
     parser.add_argument('--clip_model_type', type=str)
     parser.add_argument('--tag', type=str)
     parser.add_argument('--out_dir', default='./checkpoints')
+    parser.add_argument('--beam', action='store_true', default=False)
     args = parser.parse_args()
     main(args)

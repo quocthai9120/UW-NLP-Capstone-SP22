@@ -63,8 +63,9 @@ class ClipCocoDataset(Dataset):
     def __getitem__(self, item: int) -> Tuple[torch.Tensor, ...]:
         tokens, mask = self.pad_tokens(item)
         prefix = self.prefixes[self.caption2embedding[item]]
-        prefix_text = self.prefixes_text[self.caption2embedding[item]]
-        prefix = torch.cat([prefix, prefix_text])
+        if self.prefixes_text is not None:
+            prefix_text = self.prefixes_text[self.caption2embedding[item]]
+            prefix = torch.cat([prefix, prefix_text])
         # prefix += prefix_text
         if self.normalize_prefix:
             prefix = prefix.float()
@@ -90,6 +91,8 @@ class ClipCocoDataset(Dataset):
         self.prefixes = all_data["clip_embedding"]
         if text_data_path is not None:
             self.prefixes_text = text_data["clip_embedding"]
+        else:
+            self.prefixes_text = None
         captions_raw = all_data["captions"]
         self.image_ids = [caption["image_id"] for caption in captions_raw]
         self.captions = [caption['caption'] for caption in captions_raw]
@@ -145,7 +148,7 @@ def train(train_dataset: ClipCocoDataset, val_dataset: ClipCocoDataset, model: C
 
     device = torch.device('cuda:0')
     batch_size = args.bs
-    lm = LossManager()
+    lm = LossManager(entropy=args.entropy)
     epochs = args.epochs
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -239,16 +242,22 @@ def main():
     parser.add_argument('--is_rn', dest='is_rn', action='store_true')
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
     parser.add_argument('--clip_model_type', type=str)
+    parser.add_argument('--entropy', action='store_true')
     args = parser.parse_args()
     prefix_length = args.prefix_length
     device = torch.device('cuda:0')
-    clip_model, preprocess = clip.load("ViT-B/32", device=device, jit=False)
+    if args.is_rn:
+        clip_model, preprocess = clip.load("RN50x4", device=device, jit=False)
+    else:
+        clip_model, preprocess = clip.load("ViT-B/32", device=device, jit=False)
     text_data = args.text_data
     train_dataset = ClipCocoDataset(args.data, prefix_length, normalize_prefix=args.normalize_prefix, text_data_path=text_data)
     if text_data is not None:
         text_data = text_data.replace("train", "val")
     val_dataset = ClipCocoDataset(args.data.replace("train", "val"), prefix_length, normalize_prefix=args.normalize_prefix, text_data_path=text_data)
-    prefix_dim = 640 if args.is_rn else 1024 #512
+    prefix_dim = 640 if args.is_rn else 512
+    if args.text_data is not None:
+        prefix_dim *= 2
     args.mapping_type = {'mlp': MappingType.MLP, 'transformer': MappingType.Transformer}[args.mapping_type]
     if args.only_prefix:
         model = ClipCaptionPrefix(prefix_length, clip_length=args.prefix_length_clip, prefix_size=prefix_dim,

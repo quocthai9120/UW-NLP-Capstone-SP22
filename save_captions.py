@@ -107,22 +107,42 @@ def main(args):
         normalize_prefix=args.normalize_prefix,
         text_data_path=args.text_data,
         )
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, drop_last=False)
+    dataloader = DataLoader(dataset, batch_size=40, shuffle=False, drop_last=False)
     print(f"Validation dataset size is {len(dataloader)}")
     all_embeddings = []
     all_captions = []
     for i, (tokens, mask, prefix) in enumerate(tqdm(dataloader)):
         tokens, mask, prefix = tokens.to(DEVICE), mask.to(DEVICE), prefix.to(DEVICE, dtype=torch.float32)
-        sample = (tokens, mask, prefix)
-        result = predictor.predict2(sample, model, use_beam_search)
-        generated_caption = clip.tokenize(result).to(device)
-        text_prefix = clip_model.encode_text(generated_caption).detach().cpu()
-        all_embeddings.append(text_prefix)
-        all_captions.append(dataset.captions[i])
-        if i % 100 == 0:
-            with open(out_path, 'wb') as f:
-                pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
-            print("Step", i, "-- Image", dataset.image_ids[i], "-- Caption:", result, "-- feature shape:", torch.cat(all_embeddings, dim=0).shape)
+        if tokens.shape[0] > 1:
+            for j in range(tokens.shape[0]):
+                sample = (tokens[j].unsqueeze(0), mask[j].unsqueeze(0), prefix[j].unsqueeze(0))
+                idx = i + j
+                result = predictor.predict2(sample, model, use_beam_search)
+                if len(result) > 77:
+                    result = result[:77]
+                generated_caption = clip.tokenize(result).to(device)
+                text_prefix = clip_model.encode_text(generated_caption).detach().cpu()
+                all_embeddings.append(text_prefix)
+                all_captions.append(dataset.captions[idx])
+                if idx % 100 == 0:
+                    with open(out_path, 'wb') as f:
+                        pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
+                    print("Step", idx, "-- Image", dataset.image_ids[idx], "-- Caption:", result, "-- feature shape:", torch.cat(all_embeddings, dim=0).shape)
+        else:
+            sample = (tokens, mask, prefix)
+            idx = i
+            result = predictor.predict2(sample, model, use_beam_search)
+            if len(result) > 77:
+                result = result[:77]
+            generated_caption = clip.tokenize(result).to(device)
+            text_prefix = clip_model.encode_text(generated_caption).detach().cpu()
+            all_embeddings.append(text_prefix)
+            all_captions.append(dataset.captions[idx])
+            if idx % 100 == 0:
+                with open(out_path, 'wb') as f:
+                    pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
+                print("Step", idx, "-- Image", dataset.image_ids[idx], "-- Caption:", result, "-- feature shape:", torch.cat(all_embeddings, dim=0).shape)
+
 
     with open(out_path, 'wb') as f:
         pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)

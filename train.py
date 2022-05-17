@@ -218,12 +218,13 @@ class TransformerMapper(nn.Module):
         sequence_prefix_embedding = self.sequence_embedding_to_prefix(sequence_embedding.squeeze(1))
         prefix = torch.cat((sequence_prefix_embedding, x, prefix), dim=1)
 
-        out = self.transformer(prefix)[:, self.clip_length:]
+        out = self.transformer(prefix)[:, -self.prefix_length:]
         return out
 
     def __init__(self, dim_clip: int, dim_clip_sequence_embedding: int, dim_embedding: int, prefix_length: int, clip_length: int, num_layers: int = 8):
         super(TransformerMapper, self).__init__()
         self.clip_length = clip_length
+        self.prefix_length = prefix_length
 
         self.sequence_embedding_to_prefix = nn.Linear(dim_clip_sequence_embedding, dim_embedding)       
         self.cross_attention = MultiHeadAttention(dim_embedding, dim_clip_sequence_embedding, num_heads=8)

@@ -1,4 +1,4 @@
-import clip
+from CLIP import clip
 import os
 from torch import nn
 import numpy as np
@@ -16,12 +16,6 @@ import skimage.io as io
 import PIL.Image
 from train import TransformerMapper
 # import torch
-from tqdm import tqdm
-
-from os import listdir
-from os.path import isfile, join
-import json
-
 
 N = type(None)
 V = np.array
@@ -38,11 +32,12 @@ TSN = Optional[TS]
 TA = Union[T, ARRAY]
 
 WEIGHTS_PATHS = {
-    "coco": "data/coco/coco_prefix_best.pt",
+    "coco": "coco_prefix_best.pt",
 }
 
 D = torch.device
 CPU = torch.device("cpu")
+
 
 class Predictor:
     def setup(self):
@@ -56,12 +51,11 @@ class Predictor:
         self.models = {}
         self.prefix_length = 40
         for key, weights_path in WEIGHTS_PATHS.items():
-            model = ClipCaptionModel(self.prefix_length)
+            model = ClipCaptionModel(self.prefix_length, clip_length=self.prefix_length)
             model.load_state_dict(torch.load(weights_path, map_location=CPU))
             model = model.eval()
             model = model.to(self.device)
             self.models[key] = model
-            print(model.clip_project.alpha)
 
     def predict(self, image, model, use_beam_search):
         """Run a single prediction on the model"""
@@ -97,21 +91,13 @@ class MLP(nn.Module):
 
 class ClipCaptionModel(nn.Module):
 
-    # @functools.lru_cache #FIXME
-    def get_dummy_token(self, batch_size: int, device: D) -> T:
-        return torch.zeros(
-            batch_size, self.prefix_length, dtype=torch.int64, device=device
-        )
+    def get_dummy_token(self, batch_size: int, device: torch.device) -> torch.Tensor:
+        return torch.zeros(batch_size, self.prefix_length, dtype=torch.int64, device=device)
 
-    def forward(
-        self, tokens: T, prefix: T, mask: Optional[T] = None, labels: Optional[T] = None
-    ):
+    def forward(self, tokens: torch.Tensor, prefix: torch.Tensor, sequence_embedding: torch.Tensor, mask: Optional[torch.Tensor] = None,
+                labels: Optional[torch.Tensor] = None):
         embedding_text = self.gpt.transformer.wte(tokens)
-        prefix_projections = self.clip_project(prefix).view(
-            -1, self.prefix_length, self.gpt_embedding_size
-        )
-        # print(embedding_text.size()) #torch.Size([5, 67, 768])
-        # print(prefix_projections.size()) #torch.Size([5, 1, 768])
+        prefix_projections = self.clip_project(prefix, sequence_embedding).view(-1, self.prefix_length, self.gpt_embedding_size)
         embedding_cat = torch.cat((prefix_projections, embedding_text), dim=1)
         if labels is not None:
             dummy_token = self.get_dummy_token(tokens.shape[0], tokens.device)
@@ -119,12 +105,15 @@ class ClipCaptionModel(nn.Module):
         out = self.gpt(inputs_embeds=embedding_cat, labels=labels, attention_mask=mask)
         return out
 
-    def __init__(self, prefix_length: int, prefix_size: int = 512):
+    def __init__(self, prefix_length: int, clip_length: Optional[int] = None, prefix_size: int = 512, prefix_sequence_embedding_size: int = 768,
+                 num_layers: int = 8):
         super(ClipCaptionModel, self).__init__()
         self.prefix_length = prefix_length
-        self.gpt = GPT2LMHeadModel.from_pretrained("gpt2")
+        self.gpt = GPT2LMHeadModel.from_pretrained('gpt2')
         self.gpt_embedding_size = self.gpt.transformer.wte.weight.shape[1]
-        self.clip_project = TransformerMapper(prefix_size, 768, self.gpt_embedding_size, prefix_length, prefix_length, 8)
+        self.clip_project = TransformerMapper(prefix_size, prefix_sequence_embedding_size, self.gpt_embedding_size, prefix_length,
+                                                                     clip_length, num_layers)
+
 
 class ClipCaptionPrefix(ClipCaptionModel):
     def parameters(self, recurse: bool = True):

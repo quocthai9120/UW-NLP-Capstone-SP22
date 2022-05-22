@@ -9,7 +9,7 @@ class HLoss(nn.Module):
 
     def forward(self, x):
         b = nnf.softmax(x, dim=1) * nnf.log_softmax(x, dim=1)
-        b = 1 - 1.0 * b.sum()
+        b = - 1.0 * b.mean()
         return b
 
 class LossManager():
@@ -33,7 +33,7 @@ class LossManager():
             v = pred_dict[k]
             loss = nnf.cross_entropy(v.reshape(-1, v.shape[-1]), label.flatten(), ignore_index=0)
             l = k.replace("logits", "")
-            if self.entropy:
+            if self.entropy > 0:
                 eloss = self.hloss(v.reshape(-1, v.shape[-1]))
                 loss_out[f"loss/{k}_entropy"] = eloss
 

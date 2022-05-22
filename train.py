@@ -12,6 +12,9 @@ from torch.utils.tensorboard import SummaryWriter
 import clip
 from network import *
 from manager import LossManager
+import torch
+# torch.manual_seed(0)
+torch.manual_seed(420)
 
 class ClipCocoDataset(Dataset):
 
@@ -242,7 +245,7 @@ def main():
     parser.add_argument('--is_rn', dest='is_rn', action='store_true')
     parser.add_argument('--normalize_prefix', dest='normalize_prefix', action='store_true')
     parser.add_argument('--clip_model_type', type=str)
-    parser.add_argument('--entropy', action='store_true')
+    parser.add_argument('--entropy', type=float, required=False, default=-1)
     args = parser.parse_args()
     prefix_length = args.prefix_length
     device = torch.device('cuda:0')

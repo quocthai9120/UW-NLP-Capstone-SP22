@@ -115,11 +115,19 @@ def main(args):
         tokens, mask, prefix = tokens.to(DEVICE), mask.to(DEVICE), prefix.to(DEVICE, dtype=torch.float32)
         if tokens.shape[0] > 1:
             for j in range(tokens.shape[0]):
-                sample = (tokens[j].unsqueeze(0), mask[j].unsqueeze(0), prefix[j].unsqueeze(0))
                 idx = i + j
-                result = predictor.predict2(sample, model, use_beam_search)
-                if len(result) > 77:
-                    result = result[:77]
+                if args.oracle:
+                    sentence = tokens[j]
+                    for k in range(tokens[j].shape[0]):
+                        if tokens[j,k] == 0:
+                            sentence = tokens[j,:k]
+                            break                    
+                    result = predictor.tokenizer.decode(sentence)
+                else:
+                    sample = (tokens[j].unsqueeze(0), mask[j].unsqueeze(0), prefix[j].unsqueeze(0))
+                    result = predictor.predict2(sample, model, use_beam_search)
+                    if len(result) > 77:
+                        result = result[:77]
                 generated_caption = clip.tokenize(result).to(device)
                 text_prefix = clip_model.encode_text(generated_caption).detach().cpu()
                 all_embeddings.append(text_prefix)
@@ -129,6 +137,7 @@ def main(args):
                         pickle.dump({"clip_embedding": torch.cat(all_embeddings, dim=0), "captions": all_captions}, f)
                     print("Step", idx, "-- Image", dataset.image_ids[idx], "-- Caption:", result, "-- feature shape:", torch.cat(all_embeddings, dim=0).shape)
         else:
+            raise IOError("batch size 1 not tested recently! e.g. missing oracle access.")
             sample = (tokens, mask, prefix)
             idx = i
             result = predictor.predict2(sample, model, use_beam_search)
@@ -163,5 +172,6 @@ if __name__ == "__main__":
     parser.add_argument('--clip_model_type', default="ViT-B/32", choices=('RN50', 'RN101', 'RN50x4', 'ViT-B/32'))
     parser.add_argument('--run_type', default="train", choices=("train", "val"))
     parser.add_argument('--weights', type=str, required=True)
+    parser.add_argument('--oracle', action='store_true', default=False)
     args = parser.parse_args()
     main(args)

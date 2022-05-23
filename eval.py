@@ -1,23 +1,25 @@
+from predict import DATA_PATH
 from pycocotools.coco import COCO
 from pycocoevalcap.eval import COCOEvalCap
 import json
 from json import encoder
 
+DATA_PATH = '/local1/t3/data/coco/'
 encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 
 def combine_mscoco_val_train_caption():
-    train = json.load(open('data/coco/annotations/captions_train2014.json', 'r'))
-    val = json.load(open('data/coco/annotations/captions_val2014.json', 'r'))
+    train = json.load(open(DATA_PATH + 'annotations/captions_train2014.json', 'r'))
+    val = json.load(open(DATA_PATH + 'annotations/captions_val2014.json', 'r'))
     train['annotations'].extend(val['annotations'])
     print("Combine json has", len(train['annotations']), "annotations")
-    json.dump('data/coco/annotations/captions_trainval2014.json')
+    json.dump(train, open(DATA_PATH + 'annotations/captions_trainval2014.json', 'w'))
 
 
 def main() -> None:
     combine_mscoco_val_train_caption()
 
-    preds_captions = 'data/coco/annotations/pred_val_caption.json'
-    true_captions = 'data/coco/annotations/captions_val2014.json'
+    preds_captions = DATA_PATH + 'annotations/pred_val_caption.json'
+    true_captions = DATA_PATH + 'annotations/captions_val2014.json'
 
     coco = COCO(true_captions)
     valids = coco.getImgIds()

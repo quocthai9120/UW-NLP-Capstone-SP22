@@ -37,18 +37,20 @@ TNS = Union[Tuple[TN, ...], List[TN]]
 TSN = Optional[TS]
 TA = Union[T, ARRAY]
 
+
+DATA_PATH = '/local1/t3/data/coco/'
 WEIGHTS_PATHS = {
-    "coco": "data/coco/coco_prefix_best.pt",
+    "coco": DATA_PATH + "coco_prefix_best.pt",
 }
 
-D = torch.device
-CPU = torch.device("cpu")
+D = torch.device("cuda:1")
+CPU = torch.device("cuda:1")
 
 
 class Predictor:
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
-        self.device = torch.device("cuda")
+        self.device = torch.device("cuda:1")
         self.clip_model, self.preprocess = clip.load(
             "ViT-B/32", device=self.device, jit=False
         )
@@ -141,7 +143,7 @@ def generate_beam(
     beam_size: int = 5,
     prompt=None,
     embed=None,
-    entry_length=67,
+    entry_length=100,
     temperature=1.0,
     stop_token: str = ".",
 ):
@@ -218,7 +220,7 @@ def generate2(
     prompt=None,
     embed=None,
     entry_count=1,
-    entry_length=67,  # maximum number of words
+    entry_length=100,  # maximum number of words
     top_p=0.8,
     temperature=1.0,
     stop_token: str = ".",
@@ -280,24 +282,24 @@ def map_images_id_to_pathname():
     id_to_pathname = dict()
 
     # add val data map
-    f = json.load(open('data/coco/annotations/captions_val2014.json', 'r'))
+    f = json.load(open(DATA_PATH + 'annotations/captions_val2014.json', 'r'))
 
     for i in range(len(f['images'])):
-        id_to_pathname[str(f['images'][i]['id'])] = ('data/coco/val2014/', f['images'][i]['file_name'])
+        id_to_pathname[str(f['images'][i]['id'])] = (DATA_PATH + 'val2014/', f['images'][i]['file_name'])
 
     # add train data map
-    f = json.load(open('data/coco/annotations/captions_train2014.json', 'r'))
+    f = json.load(open(DATA_PATH + 'annotations/captions_train2014.json', 'r'))
 
     for i in range(len(f['images'])):
-        id_to_pathname[str(f['images'][i]['id'])] = ('data/coco/train2014/', f['images'][i]['file_name'])
+        id_to_pathname[str(f['images'][i]['id'])] = (DATA_PATH + 'train2014/', f['images'][i]['file_name'])
 
     print("Len of id_to_pathname is:", len(id_to_pathname))
-    torch.save(id_to_pathname, 'data/coco/id_to_pathname.pt')
+    torch.save(id_to_pathname, DATA_PATH + 'id_to_pathname.pt')
 
     return id_to_pathname
 
 
-def get_karpathy_image_ids(path='data/coco/annotations/val_caption.json'):
+def get_karpathy_image_ids(path=DATA_PATH + 'annotations/val_caption.json'):
     f = json.load(open(path, 'r'))
 
     result = [element['image_id'] for element in f]
@@ -326,11 +328,12 @@ def main():
         val_pred_captions.append({"image_id" : id, "caption" : result})
 
         if i % 100 == 0:
-            json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
+            json.dump(val_pred_captions, open(DATA_PATH + "annotations/pred_val_caption.json", "w"))
             print("Step", i, "-- Image", image_path, "-- Caption:", result)
 
-    json.dump(val_pred_captions, open("data/coco/annotations/pred_val_caption.json", "w"))
+    json.dump(val_pred_captions, open(DATA_PATH + "annotations/pred_val_caption.json", "w"))
 
 
 if __name__ == "__main__":
     main()
+

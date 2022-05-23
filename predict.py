@@ -38,26 +38,26 @@ TSN = Optional[TS]
 TA = Union[T, ARRAY]
 
 
-DATA_PATH = '/local1/t3/data/coco/'
+DATA_PATH = '/tmp/t3/t3/data/coco/'
 WEIGHTS_PATHS = {
     "coco": DATA_PATH + "coco_prefix_best.pt",
 }
 
-D = torch.device("cuda:1")
-CPU = torch.device("cuda:1")
+D = torch.device("cuda:0")
+CPU = torch.device("cuda:0")
 
 
 class Predictor:
     def setup(self):
         """Load the model into memory to make running multiple predictions efficient"""
-        self.device = torch.device("cuda:1")
+        self.device = torch.device("cuda:0")
         self.clip_model, self.preprocess = clip.load(
             "ViT-B/32", device=self.device, jit=False
         )
         self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
         self.models = {}
-        self.prefix_length = 40
+        self.prefix_length = 80
         for key, weights_path in WEIGHTS_PATHS.items():
             model = ClipCaptionModel(self.prefix_length)
             model.load_state_dict(torch.load(weights_path, map_location=CPU))

@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as nnf
 from typing import List
 import tabulate
+import clip
 
 def module_grad_stats(module):
     """
@@ -43,6 +44,8 @@ def module_weights_stats(module):
     ]
     return tabulate.tabulate(data, headers, tablefmt='psql')
 
+cos = nn.CosineSimilarity(dim=0, eps=1e-6)
+
 def generate_beam(
     model,
     tokenizer,
@@ -52,6 +55,9 @@ def generate_beam(
     entry_length=67,
     temperature=1.0,
     stop_token: str = ".",
+    guided=-1,
+    clip_model=None,
+    clip_embed=None
 ):
 
     model.eval()
@@ -83,6 +89,22 @@ def generate_beam(
                 else:
                     tokens = tokens.expand(beam_size, *tokens.shape[1:])
                     tokens = torch.cat((tokens, next_tokens), dim=1)
+
+                if guided > 0:
+                    # print("before guide:\n\t", scores.shape)
+                    # use CLIP's encoders' cosine similarity to re-scale the probability distribution
+                    assert clip_model is not None and clip_embed is not None, "CLIP model required for guided search!"
+                    clip_scores = []
+                    for candidate in tokens:
+                        candidate = tokenizer.decode(candidate)
+                        candidate = clip.tokenize(candidate).to(device)
+                        candidate_feat = clip_model.encode_text(candidate).detach().squeeze(0)#.cpu().numpy()
+                        candidate_score = cos(candidate_feat, clip_embed)
+                        # candidate_score = (cos(candidate_feat, clip_embed) + 1) / 2
+                        clip_scores.append(candidate_score)
+                    clip_scores = torch.tensor(clip_scores, dtype=torch.float32, device=device)
+                    scores += guided *  clip_scores
+                    # scores = (1-guided) * scores + guided *  clip_scores
             else:
                 logits[is_stopped] = -float(np.inf)
                 logits[is_stopped, 0] = 0
@@ -100,6 +122,23 @@ def generate_beam(
                 tokens = torch.cat((tokens, next_tokens), dim=1)
                 generated = generated[next_tokens_source]
                 scores = scores_sum_average * seq_lengths
+
+                if guided > 0:
+                    # print("before guide:\n\t", scores.shape)
+                    # use CLIP's encoders' cosine similarity to re-scale the probability distribution
+                    assert clip_model is not None and clip_embed is not None, "CLIP model required for guided search!"
+                    clip_scores = []
+                    for candidate in tokens:
+                        candidate = tokenizer.decode(candidate)
+                        candidate = clip.tokenize(candidate).to(device)
+                        candidate_feat = clip_model.encode_text(candidate).detach().squeeze(0)#.cpu().numpy()
+                        # candidate_score = (cos(candidate_feat, clip_embed) + 1) / 2
+                        candidate_score = cos(candidate_feat, clip_embed)
+                        clip_scores.append(candidate_score)
+                    clip_scores = torch.tensor(clip_scores, dtype=torch.float32, device=device)
+                    # scores = (1-guided) * scores + guided *  clip_scores
+                    scores += guided *  clip_scores
+
                 is_stopped = is_stopped[next_tokens_source]
             next_token_embed = model.gpt.transformer.wte(next_tokens.squeeze()).view(
                 generated.shape[0], 1, -1

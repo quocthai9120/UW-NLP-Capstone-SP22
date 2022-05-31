@@ -1,6 +1,7 @@
 import clip
 import os
 from torch import nn
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import torch
 import torch.nn.functional as nnf
@@ -20,34 +21,10 @@ from tqdm import tqdm
 from os import listdir
 from os.path import isfile, join
 import json
-from train import *
 from utils import *
+from network_c import ClipCaptionPrefix, ClipCocoDataset
+import argparse
 
-
-# N = type(None)
-# V = np.array
-# ARRAY = np.ndarray
-# ARRAYS = Union[Tuple[ARRAY, ...], List[ARRAY]]
-# VS = Union[Tuple[V, ...], List[V]]
-# VN = Union[V, N]
-# VNS = Union[VS, N]
-# T = torch.Tensor
-# TS = Union[Tuple[T, ...], List[T]]
-# TN = Optional[T]
-# TNS = Union[Tuple[TN, ...], List[TN]]
-# TSN = Optional[TS]
-# TA = Union[T, ARRAY]
-
-# WEIGHTS_PATHS = {
-#     # "coco": "data/coco/coco_prefix_best.pt",
-#     "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/pretrain/coco_prefix_best.pt"
-#     # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/coco_train/coco_prefix_best.pt"
-#     # refinement
-#     # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/refinement_v1/coco-prefix_refinment-v1_best.pt",
-#     # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/refinement_v1-concat/coco-prefix_refinment-v1-concat_6.pt",
-#     # "coco": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/refinement_v1-concat/coco-prefix_refinment-v1-concat_best.pt",
-#     # "base_model": "/data/joonl4/CSE481N/UW-NLP-Capstone-SP22/pretrain/coco_prefix_best.pt"
-# }
 
 DEVICE = torch.device("cuda:0")
 
@@ -75,7 +52,7 @@ class Predictor:
                 clip_length=args.prefix_length_clip,
                 prefix_size=prefix_size,
                 num_layers=args.num_layers,
-                mapping_type=args.mapping_type,
+                # mapping_type=args.mapping_type,
             )
         else:
             model = ClipCaptionModel(
@@ -93,9 +70,9 @@ class Predictor:
 
     def predict(self, sample, use_beam_search, base_model="base_model"):
         """Run a single prediction on the model"""
-        (tokens, mask, prefix) = sample
+        (tokens, mask, prefix, prefix_sequence) = sample
         with torch.no_grad():
-            prefix_embed = self.model(tokens, prefix, mask)["prefix"]
+            prefix_embed = self.model(tokens, prefix, prefix_sequence, mask)["prefix"]
             # prefix_embed = self.model.clip_project(prefix).reshape(1, self.prefix_length, -1)
         if use_beam_search:
             return generate_beam(
@@ -111,9 +88,9 @@ class Predictor:
 
 
 def main(args):
-    val_dataset = ClipCocoDataset(args.data, args.prefix_length, 
+    val_dataset = ClipCocoDataset("val", args.prefix_length, 
         normalize_prefix=args.normalize_prefix,
-        text_data_path=args.text_data,
+        # text_data_path=args.text_data,
         unique=True)
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, drop_last=False)
     print(f"Validation dataset size is {len(val_dataloader)}")
@@ -129,9 +106,10 @@ def main(args):
     predictor.setup(args)
     ids = val_dataset.image_ids
     assert len(ids) == len(val_dataloader), "number of image_ids does not match dataloader size!"
-    for i, (tokens, mask, prefix) in enumerate(tqdm(val_dataloader)):
-        tokens, mask, prefix = tokens.to(DEVICE), mask.to(DEVICE), prefix.to(DEVICE, dtype=torch.float32)
-        result = predictor.predict((tokens, mask, prefix), use_beam_search)
+    for i, (tokens, mask, prefix, prefix_sequence) in enumerate(tqdm(val_dataloader)):
+        tokens, mask, prefix, prefix_sequence = \
+            tokens.to(DEVICE), mask.to(DEVICE), prefix.to(DEVICE, dtype=torch.float32), prefix_sequence.to(DEVICE, dtype=torch.float32)
+        result = predictor.predict((tokens, mask, prefix, prefix_sequence), use_beam_search)
         val_pred_captions.append({"image_id" : ids[i], "caption" : result})
 
         if i % 100 == 0:
